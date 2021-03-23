@@ -1,0 +1,572 @@
+---
+title: "Assignment 3 - Question 2"
+author: "Joshua Registe"
+date: "3/21/21"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+##pacman pload allows us to check if packages are installed. loads if already installed.
+
+pacman::p_load(
+  # for data importing and pre-processing
+  dplyr, tidyverse,readxl, palmerpenguins,tidyselect, conflicted,naniar, stringr,
+  # for EDA
+  skimr, DataExplorer,
+  # for data modeling and visualization
+  tidymodels, broom, dotwhisker, vip,
+  # table processing
+  kableExtra
+)
+
+defaulttheme<-theme(panel.background = element_blank(),
+                            panel.border = element_rect(color = "black", fill=NA))
+
+
+```
+
+
+## Data Exploration
+```{r}
+loandata<-read_csv("Loan_approval.csv")
+
+```
+
+Before conducting any modeling, we will explore our dataset. Below describes the `Loan_approval` dataset where we have 614 observations with 13 features used to describe these observations. eight of these variables are factors while the other five are numeric.
+
+
+```{r}
+
+summary(loandata) %>%kable() %>%   
+  kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+  scroll_box() %>% 
+  kable_classic_2()
+
+```
+We can visualize the amount of missing data that is observed in our dataset with the `vis_miss` function from the `naniar` package. Majority of the data is complete and approximate 1.9% of the dataset is missing. There are no observations with majority of features missing, and there are no features that are abnormally sparse. A threshold of 0.5 was set for observation completion, meaning if 50% of the features measure NA for any observation, that row is removed from our dataset. For this case, no rows in the dataset triggered this threshold.
+The few pieces of missing information will need to be handled with imputation, removal. Of the categorical variables, this includes, `Gender`, `Married`, `Dependents`, `Self_Employed` and `Credit_History`. of the numeric variables this includes `Loan Amount`, `Loan_Amount_Terms`, and `Credit_History`. Imputation methods explored include, mean, mode, bagimpute, knn, and median.
+
+
+
+```{r}
+
+naniar::vis_miss(loandata)
+```
+```{r}
+
+limitmissing <- .5*ncol(loandata)
+
+retain<-apply(loandata, MARGIN= 1, function(y) sum(length(which(is.na(y)))))<limitmissing
+
+Dataset<-loandata[retain,]
+
+#loandata[!retain,] %>% kable()  %>% 
+#    kable_styling(
+#      full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+#  scroll_box() %>% 
+#  kable_classic_2()
+
+
+```
+
+Simple barplot is showing the frequency of all categorical variables in the dataset, as well as a histogram to show distribution of numeric features in the dataset. `Gender` comprised primarily of `Male` and this is a feature that is decidely removed from our dataset to avoid making loan approval predictions based on any gender biases. on the `Loan_Amount_Term`, most individuals go with the 30 year mortgage, while few select terms below or above that. Many of the distributions skew right, however no transformations to normalize this dataset are necessary for decision tree classification-based models.
+
+```{r}
+unique(loandata$Loan_Amount_Term)
+
+plot_bar(loandata, theme_config = defaulttheme, ncol = 3)
+plot_histogram(loandata,theme_config = defaulttheme, ncol = 2)
+
+
+```
+
+The bar chart also depicts that there is class imbalance of the our response variable `Loan_Status`. Knowing this, we may need to perform some over/undersampling techniques in order to obtain better training sets. The table below shows this as 69% approved `Y` and 31% denied `N`. With this, we know that at the very least, guessing the majority class will provide a 69% accuracy and our models need to surpass this. Kappa is a metric used to measure accuracy that is normalized based on the class distribution and will be used to compare model performance. For Kappa, values of 0-0.20 as slight, 0.21-0.40 as fair, 0.41-0.60 as moderate, 0.61-0.80 as substantial, and 0.81-1 as almost perfect.
+
+```{r}
+prop.table(table(loandata$Loan_Status)) %>% as.data.frame() %>% 
+  mutate(Freq=percent(Freq)) %>% 
+  rename( "Class" = Var1, "Proportion" = "Freq") %>% 
+  mutate(Count =table(loandata$Loan_Status)) %>%kable() %>%   
+  kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+  kable_classic_2()
+```
+
+Next we look at the same categorical and numeric distributions, however we separate these by our predictor variable to assess any interesting or unusual patterns. We notice that the proportion of Y/N are distributed in our categorical variables such that there is no feature that decidingly determines our prediction (which would provide less incentive to build models). However, `Credit_Score` seems to be a major determing factor.
+
+```{r}
+plot_bar(loandata, by = "Loan_Status")
+plot_boxplot(loandata, by = "Loan_Status", theme_config = defaulttheme, ncol =2 )
+
+```
+
+Tree-based models are not susceptible to the negative impacts of colinearity, however we can still check for if there is any capacity for feature reduction by looking at our pairwise comparison of numeric features. if there are features that describe the data too similarly, they may not provide much additional benefit in the model. For this particular dataset, we do not observe heavy multicolinearity.
+
+```{r}
+
+plot_correlation(loandata,type = c("continuous"),cor_args = list(use = "pairwise.complete.obs"))
+
+```
+
+
+```{r}
+
+parsnip::show_engines("decision_tree")
+
+```
+
+## Model Process
+
+Several models will be tested across a 10-fold bootstrapped validation training set that will allow for robust predictions on the training set that are less susceptible to overfitting. The decision tree model will be tested using the `rpart` inside of the `tidymodels` framework. Various transformations, imputations and steps are applied in each model to compare performance and is described in each model section. After testing various model setups along the validation sets, the best model will be tuned via the appropriate decision tree specifications and final predictions and accuracies will be shown on the training and testing sets which are split 75/25.
+
+
+```{r}
+
+loandata<-
+  loandata %>% mutate_if(is.character,as.factor)
+
+set.seed(3)
+Datasplit<- initial_split(loandata, prop = .75, strata = Loan_Status)
+Datatrain<-training(Datasplit)
+datatest<-testing(Datasplit)
+datacv<- vfold_cv(Datatrain, v = 10, strata = Loan_Status)
+
+tree_engine<-
+  decision_tree(mode = "classification") %>% 
+  set_engine(engine = "rpart")
+
+dt_wf<-
+  workflow() %>% 
+  add_model(tree_engine)
+
+```
+
+
+
+## First Model, Workflow 1 - Baseline (basic imputation and feature removal)
+
+For the initial model, start by standard steps that are necessary to make predictions including getting rid of NAs. in this case the following steps are made on this model:
+
+- Removal of Loan_ID: unique identifier for each loan with no valuable information
+- Removal of Gender: avoids gender bias
+- Imputation of all numeric variables with median
+- Imputation of all factor variables with mode
+- Dummifying all factor variables into 0/1s depending on number of features
+
+The results this model tested among 10-folds of a training set is 80% accuracy and 48% KAP. Other performance metrics are presented below
+
+```{r}
+
+#Baseline Model
+dt_recipe1<-
+  recipe(Loan_Status ~ ., data = Datatrain) %>% 
+  step_rm(Loan_ID, Gender) %>% 
+  step_medianimpute(all_numeric()) %>% 
+  step_modeimpute(all_nominal(), -all_outcomes()) %>% 
+  step_dummy(all_nominal(), -all_outcomes())
+
+dt_recipe1 %>% prep()
+dt_wf1<-
+ dt_wf %>% 
+  add_recipe(dt_recipe1)
+
+wf1_results<-
+dt_wf1 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+wf1_results %>% collect_metrics(summarize = T)
+
+All_metrics<-data.frame()
+wf_res_function<-
+  function(wf_results, modelname){
+    #this function calls returns the ROC_AUC, accuracy, and kap of a cross validated model result
+    
+    All_metrics %>% bind_rows(
+      collect_metrics(wf_results, summarize = T) %>%
+      mutate(model = modelname))
+  }
+
+All_metrics<-
+wf_res_function(wf1_results,"Model 1")
+
+
+
+```
+
+## Second Model, Workflow 2 - Imputation
+
+For this model, all steps that were applied to model 1 are also applied to model 2 except the imputation of the factor variables are done with k-nearest neighbors instead of mode imputations. The following describes the adjustments
+
+- All steps from Model 1 except mode imputation
+- Imputation of all factor variables with KNN
+
+no change in the Accuracy or KAP was observed from model 1. Additionally bagimpute, removing missing data, and unknown classification were tested and performed either the same or worse than the baseline model.
+
+```{r}
+
+#model 2
+dt_recipe2<-
+  recipe(Loan_Status ~ ., data = Datatrain) %>% 
+  step_rm(Loan_ID, Gender) %>% 
+  step_medianimpute(all_numeric()) %>% 
+  step_knnimpute(all_nominal(), -all_outcomes()) %>% 
+  step_dummy(all_nominal(), -all_outcomes())
+
+dt_recipe2 %>% prep()
+dt_wf2<-
+ dt_wf %>% 
+  add_recipe(dt_recipe2)
+
+dt_recipe2 %>% prep()
+
+wf2_results<-
+  dt_wf2 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+wf2_results %>% collect_metrics(summarize = T)
+
+
+
+All_metrics<-
+  wf_res_function(wf2_results,"Model 2")
+
+```
+
+## Third Model, Workflow 3 - Undersampling
+
+
+All steps that were applied to model 1 are also applied to model 3 but down-sampling is added in order to test balance the majority and minority classes in our response variable. the down sampling was tested at a few ratios from 1:1 to 2. the optimal ratio is presented below at 1.8 with 35% `N` and 65% `Y`. a 4% adjustment in the class balance. the following steps were made:
+
+- All steps from Model 1 
+- Undersampling of the majority class to balance class
+
+This resulted in a lower accuracy and lower KAP likely because this dataset is not extensive enough to provide enough information when downsampling. Due to this, Downsampling will not be incorporated as part of the final model
+
+
+```{r}
+
+
+#underratio 2 works
+#model 3
+dt_recipe3<-
+  dt_recipe1 %>% 
+  themis::step_downsample(Loan_Status, skip = F,under_ratio =1.8)
+
+table((bake(dt_recipe3 %>% prep(),new_data = Datatrain))$Loan_Status)
+
+dt_wf3<-
+ dt_wf %>% 
+  add_recipe(dt_recipe3)
+
+dt_recipe3 %>% prep()
+
+wf3_results<-
+  dt_wf3 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+wf3_results %>% collect_metrics(summarize = T)
+
+
+All_metrics<-
+  wf_res_function(wf3_results,"Model 3")
+
+```
+
+## Fourth Model, Workflow 4 - Feature Reduction and Engineering
+
+All steps that were applied to model 1 are also applied to model 4. Additional steps were added to this model to test for feature reduction and feature engineering. `ApplicantIncome` and `CoapplicantIncome` were combined into a single variable.
+
+- All steps from Model 1 
+- Testing and removal for low variance or zero variance features
+- Feature engineering - creating interation feature for`ApplicantIncome` and `CoapplicantIncome` by summation
+
+The results of this model showed that no low-variance features exist in dataset so these steps will be removed. However, Combining income increase model KAP to 49%.
+
+```{r}
+
+#starting from baseline
+dt_recipe4<-
+  dt_recipe1 %>% 
+  step_zv(all_predictors()) %>% 
+  step_nzv(all_predictors()) %>% 
+  step_mutate(Total_Income = ApplicantIncome+CoapplicantIncome) %>% 
+  step_rm(ApplicantIncome, CoapplicantIncome)
+  
+
+dt_recipe4 %>% prep()
+
+dt_wf4<-
+ dt_wf %>% 
+  add_recipe(dt_recipe4)
+
+wf4_results<-
+dt_wf4 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+wf4_results %>% collect_metrics(summarize = T)
+
+All_metrics<-
+wf_res_function(wf4_results,"Model 4")
+
+
+```
+
+## Fith Model, Workflow 5 - Feature Reduction Part 2
+
+All steps that were applied to model 1 are also applied to model 5. Additional steps were added to this model to test for feature reduction and feature engineering. `ApplicantIncome` and `CoapplicantIncome` were combined into a single variable. The following was made to model 5:
+
+- All steps from Model 1 
+- Feature engineering - creating interaction feature for`ApplicantIncome` and `CoapplicantIncome` by summation
+- Feature engineering - creating interaction feature for `Total_Income` and `LoanAmount` to create `IncomeLoanRatio`
+
+
+Adding the `IncomeLoanRatio` Feature increased our model KAP from 49% to 52% and our accuracy from 80% to 82% so we will retain these steps.
+
+```{r}
+
+#starting from 1, removing nzv and zv, adding income to loan
+#model 5
+dt_recipe5<-
+  dt_recipe1 %>% 
+  step_mutate(Total_Income = ApplicantIncome+CoapplicantIncome) %>% 
+  step_rm(ApplicantIncome, CoapplicantIncome) %>% 
+  step_mutate(IncomeLoanRatio = Total_Income/LoanAmount) 
+
+dt_recipe5 %>% prep()
+
+dt_wf5<-
+ dt_wf %>% 
+  add_recipe(dt_recipe5)
+
+wf5_results<-
+dt_wf5 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+wf5_results %>% collect_metrics(summarize = T)
+
+
+All_metrics<-
+wf_res_function(wf5_results,"Model 5")
+
+```
+
+## Sixth Model, Workflow 6 - Discretization Testing
+
+
+All steps that were applied to model 5 are also applied to model 6. Additionally, Data discretization for numeric features were tested. Binning features sometimes allows groupings to better predict our response variable. Binning was tested along various features and various bins, the feature that improved model accuracy most when binning was the engineered feature `Total_Income`. The following steps were done to model 6:
+
+- All steps from Model 1 
+- Discretization of `Total_Income` into 6 bins
+
+
+
+```{r}
+
+#starting from 5, adding to this by discretizing the total income variable
+#model 5
+dt_recipe6<-
+  dt_recipe5 %>% 
+  step_discretize(Total_Income, num_breaks = 8)
+  
+dt_recipe6 %>% prep
+dt_wf6<-
+ dt_wf %>% 
+  add_recipe(dt_recipe6)
+
+wf6_results<-
+dt_wf6 %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+wf6_results %>% collect_metrics(summarize = T)
+
+All_metrics<-
+wf_res_function(wf6_results,"Model 6")
+
+```
+
+
+Adding the `IncomeLoanRatio` Feature increased our model KAP from 52% to 53% and our accuracy from 82.1% to 82.4% so we will retain these steps. 
+
+## Model Selection
+
+The average KAP metric tested on 10-validation training sets for each model is presented below and model 6 will be the model selected for further tuning and model finalization.
+
+```{r}
+All_metrics %>% filter(.metric == "kap") %>% kable() %>% 
+     kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>%
+  kable_classic_2()
+
+
+```
+
+## Model Tuning 
+
+After optimizing our model based on various transformations accross multiple validation datasets, the best model is selected and needs to be tuned. There are various specifications of a decision tree that can affect the performance. The ones that will be tuned in this section are:
+
+- `cost_complexity`: represents the amount of information gain required for a tree to continue splitting along a node
+
+- `tree_depth`: represents the maximum amount of branches a tree may extend before terminating
+
+- `min_n`: represents the minimum number of datapoints required at a node for a split to be made
+
+
+In order to test various values, a grid of these features are set up with various combinations of options as shown below. 
+
+```{r}
+tree_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 4)
+tree_grid %>%  kable %>% 
+  kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>%
+  scroll_box(height = "200px") %>% 
+  kable_classic_2()
+```
+
+All of these values are testing on the 10-fold cross-validation set where the result of every combination along each 10 splits of the data are averaged. The results of this tuning exercise is plotted below. KAP is the metric used to select the best tree, where the minimum cost function, a tree depth of 5 and a minimal node size of 40 is shown to be optimal.
+
+```{r}
+doParallel::registerDoParallel()
+
+tree_engine<-
+  decision_tree(mode = "classification",
+                cost_complexity = tune(), #the minimum improvement in model needed at each node
+                tree_depth = tune(), #The maximum depth of the tree allowed
+                min_n(tune())#minimum number of datapoints required in node to tune decision tree
+                ) %>% 
+  set_engine(engine = "rpart")
+             
+set.seed(3)
+
+tree_rs <- tune_grid(
+  object =  tree_engine,
+  preprocessor = dt_recipe6,
+  resamples = datacv,
+  grid = tree_grid,
+  metrics = metric_set(accuracy, kap)
+)
+
+collect_metrics(tree_rs) %>% kable() %>% 
+   kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+  scroll_box(height = "200px") %>% 
+  kable_classic_2()
+
+tree_rs %>% autoplot()+theme_light(base_family = "IBMPlexSans")
+
+
+```
+
+
+## Final Results
+
+We can finalize our decision and create our decision tree based on the following specification:
+
+```{r}
+show_best(tree_rs, "kap")
+
+final_tree <- finalize_model(tree_engine, select_best(tree_rs, "kap"))
+
+final_tree
+```
+
+A visual of our fitted model tree to the training dataset is shown below. The first value in the tree nodes indicate Y/N on whether there loan default would be predicted at that node, the second values shows the probability associated with `N` on the left and `Y` on the right. the third row in the node shows the percentage of the data contained in each node. The top most node depicts the most descriptive feature of our classification model, while following nodes depict secondary descriptive features. Due to the tree specifications (40 data points needed minimum at each node) only two main features are used to predict `LoanStatus` which are `Credit_History` and `IncomeLoanRatio`. 
+
+
+```{r}
+final_wf<-
+  workflow() %>% 
+  add_model(final_tree) %>% 
+  add_recipe(dt_recipe6)
+
+wf_final_results<-
+final_wf %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+#wf_final_results %>% collect_metrics(summarize = T)
+
+All_metrics<-
+wf_res_function(wf_final_results,"wf_final")
+
+dtmodel<-
+  final_wf %>% fit(data = Datatrain)
+
+#rpart.plot::rpart.plot(dtmodel$fit$fit$fit)
+rattle::fancyRpartPlot(dtmodel$fit$fit$fit,palettes="RdPu")
+
+```
+
+additional information about the variable importance was extracted from the model and shown in the variable importance plot below. where `Credit_History` has an overwhelming weight of importance, followed by our engineered feature `IncomeLoanRatio`.
+
+```{r}
+#For plotting tree
+caret::varImp(dtmodel$fit$fit$fit) %>% mutate(Feature = rownames(.)) %>% 
+  ggplot(mapping = aes(x =fct_reorder(Feature,Overall), y = Overall))+
+  geom_col(fill ="skyblue3")+
+  coord_flip()+
+  defaulttheme+
+  labs(x = "Importance",
+       y = "Feature",
+       title = "Variable Importance")
+
+#traintransformed<-bake(dt_recipe6 %>% prep,Datatrain)
+#testtransformed<-bake(dt_recipe6 %>% prep,datatest)
+
+training_predictions<-
+predict(dtmodel,Datatrain, type = "class") %>% 
+  bind_cols(Datatrain$Loan_Status) %>% 
+  rename("Loan_Status"= "...2") %>% 
+  mutate(set = "Training")
+
+
+```
+
+The confusion matrix and accuracy of our training set is shown below with an accuracy of 83.1% and kappa of 55.6%. The confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
+
+```{r}
+training_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
+
+metrics(training_predictions, truth = Loan_Status,estimate = .pred_class)
+
+
+```
+
+Similarly, the confusion matrix and accuracy of our testing set is shown below with an accuracy of 79.7% and kappa of 46.6%. Similar to the training dataset, the confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
+
+```{r}
+testing_predictions<-
+predict(dtmodel,datatest, type = "class") %>% 
+  bind_cols(datatest$Loan_Status) %>% 
+  rename("Loan_Status"= "...2") %>% 
+  mutate(set = "Testing")
+
+testing_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
+
+metrics(testing_predictions, truth = Loan_Status,estimate = .pred_class)
+
+```
+
+
