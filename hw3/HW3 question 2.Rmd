@@ -375,7 +375,7 @@ wf_res_function(wf5_results,"Model 5")
 
 All steps that were applied to model 5 are also applied to model 6. Additionally, Data discretization for numeric features were tested. Binning features sometimes allows groupings to better predict our response variable. Binning was tested along various features and various bins, the feature that improved model accuracy most when binning was the engineered feature `Total_Income`. The following steps were done to model 6:
 
-- All steps from Model 1 
+- All steps from Model 5
 - Discretization of `Total_Income` into 6 bins
 
 
@@ -407,7 +407,7 @@ wf_res_function(wf6_results,"Model 6")
 ```
 
 
-Adding the `IncomeLoanRatio` Feature increased our model KAP from 52% to 53% and our accuracy from 82.1% to 82.4% so we will retain these steps. 
+Binning our engineered feature `Total_Income` increased our model KAP from 52% to 53% and our accuracy from 82.1% to 82.4% so we will retain these steps. 
 
 ## Model Selection
 
