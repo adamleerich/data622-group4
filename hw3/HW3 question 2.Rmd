@@ -33,6 +33,7 @@ defaulttheme<-theme(panel.background = element_blank(),
                             panel.border = element_rect(color = "black", fill=NA))
 
 
+conflicted::conflict_prefer("filter", "dplyr")
 ```
 
 
@@ -386,7 +387,7 @@ All steps that were applied to model 5 are also applied to model 6. Additionally
 #model 5
 dt_recipe6<-
   dt_recipe5 %>% 
-  step_discretize(Total_Income, num_breaks = 8)
+  step_discretize(Total_Income, num_breaks = 8) 
   
 dt_recipe6 %>% prep
 dt_wf6<-
@@ -403,6 +404,10 @@ wf6_results %>% collect_metrics(summarize = T)
 
 All_metrics<-
 wf_res_function(wf6_results,"Model 6")
+
+#loans_transformed_train<-bake(dt_recipe6 %>% prep,new_data = Datatrain)
+#loans_transformed_test<-bake(dt_recipe6 %>% prep,new_data = datatest)
+#save(loans_transformed_train,loans_transformed_test,file = "~/hw3/data/loans_transformed_test-train.RData")
 
 ```
 
