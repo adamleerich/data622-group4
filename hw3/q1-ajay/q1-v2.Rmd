@@ -1,0 +1,372 @@
+---
+title: "Group 4 Assignment 3"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "April 4, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE)
+
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis'
+  # 'htmlTable', 
+  # 'gmodels', 
+  # 'car', 
+  # 'mice', 
+  # 'randomForest', 
+  # 'tidyselect', 
+  # 'skimr', 
+  # 'tidymodels', 
+  # 'broom', 
+  # 'dotwhisker', 
+  # 'vip', 
+  # 'parsnip', 
+  # 'workflows', 
+  # 'recipes', 
+  # 'tune', 
+  # 'yardstick'
+)
+
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
+}
+
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
+
+```
+
+
+
+
+
+## (Q1) k-Nearest Neighbors {.tabset .tabset-fade .tabset-pills}
+
+
+> [Using] the Penguin dataset . . . please use [the] K-nearest neighbors algorithm to predict the species variable.
+
+The **KNN Algorithm** is a simple classification algorithm.
+It stores the training data and classifies
+new cases by a majority vote of the case's k-nearest neighbors.
+
+The algorithm is sensitive to the units of the chosen predictor variables.
+It is important that we transform all the values to a common scale.
+A frequently used practice is to normalize the data to the interval [0, 1].
+
+KNN works well when all predictor data has been converted to 
+numerics with the exception of the target variable `species`.
+
+*A note on data preparation:* this is the third time we've worked
+with the `palmerpenguins` data.  We've repeated some data preparation
+and EDA in the appendix.  The data prep we do here are items 
+**specific to the k-NN algorithm**.
+
+
+
+
+```{r}
+penguins_na_omit <- readr::read_rds('data/penguins_na_omit.Rds')
+
+normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+penguins_df_norm <- penguins_na_omit %>% 
+  select(-year) %>% 
+  mutate_if(is.factor, as.integer) %>% 
+  mutate_if(is.numeric, normalize) %>% 
+  mutate(species = penguins_na_omit$species)
+
+```
+
+
+
+
+
+
+### Create Training and Test sets
+
+The first is used to train the system, while the second is used to evaluate the learned or trained system.
+In practice, the division of your data set into a test and a training sets is disjoint:
+the most common splitting choice is to take 2/3 of your original data set as the training set, while the 1/3 that remains will compose the test set.
+
+
+```{r}
+# Create sample data for testing and training.
+set.seed(1234)
+ind <- sample(2, nrow(penguins_df_norm), replace=TRUE, prob=c(0.67, 0.33))
+
+# Training and test sets
+penguin.train <- penguins_df_norm %>% filter(ind == 1) %>% select(-species)
+penguin.test  <- penguins_df_norm %>% filter(ind == 2) %>% select(-species)
+
+# Training and test labels
+penguin.trainLabels <- penguins_df_norm$species[ind == 1]
+penguin.testLabels <- penguins_df_norm$species[ind == 2]
+```
+
+
+
+
+
+### Build KNN Classifier
+
+This step performs the actual classification.
+Note: the k parameter is often an odd number to avoid ties in the voting scores.
+A good starting point for k is the square root of the total number of observations.
+
+```{r}
+penguin_pred <- knn(
+  k = 19,
+  train = penguin.train, 
+  test = penguin.test, 
+  cl = penguin.trainLabels)
+
+caret::confusionMatrix(
+  penguin_pred, 
+  penguin.testLabels)
+```
+
+With k = 19 we have zero misclassifications!
+
+
+
+What are the accuracy measures for other values of k?
+
+```{r}
+k_search <- function(k) {
+  penguin_pred <- knn(
+    k = k,
+    train = penguin.train, 
+    test = penguin.test, 
+    cl = penguin.trainLabels)
+
+  cm <- caret::confusionMatrix(
+    penguin_pred, 
+    penguin.testLabels)
+  
+  data.frame(
+    k = k, 
+    Adelie = cm$byClass[1, 11],
+    Chinstrap = cm$byClass[2, 11],
+    Gentoo = cm$byClass[3, 11] )
+}
+
+res <- NULL
+for (i in seq(1, 21, 2)) {
+  res_i <- k_search(i)
+  if (is.null(res))
+    res <- res_i
+  else
+    res <- rbind(res, res_i)
+}
+
+print(res)
+```
+
+We see that k = 17 is the first value of k for which we have perfect accuracy.
+But, the accuracy is extremely good for all values of k.
+
+
+
+
+
+
+
+### What if we do not know `island`?
+
+From previous homework assignments, we found that `island`
+was an extremely helpful variable because not all species
+are found on each island.  If we wanted to build a model
+without `island` (for individuals we might find at sea, for example),
+how well would it perform?
+
+```{r}
+cols <- c(
+  "bill_length_mm", "bill_depth_mm", 
+  "flipper_length_mm", "body_mass_g", "sex")
+
+k_search <- function(k) {
+  penguin_pred <- knn(
+    k = k,
+    train = penguin.train[, cols], 
+    test = penguin.test[, cols], 
+    cl = penguin.trainLabels)
+
+  cm <- caret::confusionMatrix(
+    penguin_pred, 
+    penguin.testLabels)
+  
+  data.frame(
+    k = k, 
+    Adelie = cm$byClass[1, 11],
+    Chinstrap = cm$byClass[2, 11],
+    Gentoo = cm$byClass[3, 11] )
+}
+
+res <- NULL
+for (i in seq(1, 21, 2)) {
+  res_i <- k_search(i)
+  if (is.null(res))
+    res <- res_i
+  else
+    res <- rbind(res, res_i)
+}
+
+print(res)
+```
+
+With k as low as 3 we get a pretty good model without using `island`.
+However, we do not see perfect classification as we do when
+the variable is included.
+
+
+
+
+
+## Appendix: `palmerpenguins` data prep {.tabset .tabset-fade .tabset-pills}
+
+
+```{r}
+library(tidyverse)
+library(corrplot)
+library(palmerpenguins)
+penguins <- palmerpenguins::penguins
+```
+
+This data has 344 rows of 8 variables:
+
+| variable           | definition                                                          |
+|--------------------|---------------------------------------------------------------------|
+| species            | a factor denoting penguin species (Adélie, Chinstrap and Gentoo)    |
+| island             | a factor denoting island in Palmer Archipelago, Antarctica (Biscoe, Dream or Torgersen)    |
+| bill_length_mm     | a number denoting bill length (millimeters)                         |
+| bill_depth_mm      | a number denoting bill depth (millimeters)                          |
+| flipper_length_mm  | an integer denoting flipper length (millimeters)                    |
+| body_mass_g        | an integer denoting body mass (grams)                               |
+| sex                | a factor denoting penguin sex (female, male)                        |
+| year               | an integer denoting the study year (2007, 2008, or 2009)            |
+
+
+```{r}
+summary(penguins)
+```
+
+While there are several methods for dealing with missing data,
+we have opted to simply remove rows with NAs.
+
+* imputing numerical variables with `mean` would decrease variance 
+* four variables `bill_length_mm`, `bill_depth_mm`, `flipper_length_mm`, and `body_mass_g` have the same number of NAs
+* removing rows with NAs treates this variables equally
+* variable `sex` has 11 missing data points
+* we removed these observations because our data is split evenly between male and female
+
+
+```{r}
+penguins_na_omit = na.omit(penguins)
+```
+
+There is some correlation in the numeric variables,
+as we have seen in our other assignments.
+
+```{r fig.height = 9, fig.width = 12, fig.align = "center"}
+penguins_numeric <- penguins_na_omit %>% 
+  select(-species, -sex, -island, -year)
+
+# Cor-relation between numerics
+corrplot(cor(penguins_numeric), type = 'lower', diag = FALSE)
+```
+
+Year is not a potential predictor for this problem so we have excluded it.
+There is a strong relationship between `body_mass_g` and `flipper_length_mm`.
+The pairs of measurement variables that have absolute correlations above 0.5
+we list here:
+
+```{r}
+corr_matrtix <- cor(penguins_numeric)
+
+corr_matrtix %>% 
+  as.data.frame %>% 
+  mutate(x = rownames(corr_matrtix)) %>% 
+  pivot_longer(
+    cols = -x,
+    names_to = 'y', 
+    values_to = 'corr') %>% 
+  filter(x < y) %>% 
+  filter(corr > 0.5 | corr < -0.5) %>% 
+  arrange(desc(abs(corr)))
+```
+
+We save the prepared data for use in Question #1.
+
+
+```{r echo=TRUE, eval=FALSE}
+readr::write_rds(penguins_na_omit, 'data/penguins_na_omit.Rds')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## References
+
+1. https://www.kdnuggets.com/2017/09/missing-data-imputation-using-r.html
+
+2. https://www.researchgate.net/post/What-are-the-correlation-values-with-respect-to-low-moderate-high-correlation-specially-in-medical-research#:~:text=Correlation%20coefficients%20whose%20magnitude%20are,can%20be%20considered%20highly%20correlated.
+
+3. https://rpubs.com/sediaz/Correlations
+
+4. https://towardsdatascience.com/k-nearest-neighbors-algorithm-with-examples-in-r-simply-explained-KNN-1f2c88da405c
+
+5. https://www.datacamp.com/community/tutorials/machine-learning-in-r#normalization
+
+6. http://r-statistics.co/Missing-Value-Treatment-With-R.html
+
+
+
+
+

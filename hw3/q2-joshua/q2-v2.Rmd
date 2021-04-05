@@ -1,0 +1,400 @@
+---
+title: "Group 4 Assignment 3"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "April 4, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE)
+
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis'
+  # 'htmlTable', 
+  # 'gmodels', 
+  # 'car', 
+  # 'mice', 
+  # 'randomForest', 
+  # 'tidyselect', 
+  # 'skimr', 
+  # 'tidymodels', 
+  # 'broom', 
+  # 'dotwhisker', 
+  # 'vip', 
+  # 'parsnip', 
+  # 'workflows', 
+  # 'recipes', 
+  # 'tune', 
+  # 'yardstick'
+)
+
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
+}
+
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
+
+```
+
+
+## (Q2) Decision Tree {.tabset .tabset-fade .tabset-pills}
+
+Several models will be tested across a 10-fold bootstrapped validation training set that will allow for robust predictions on the training set that are less susceptible to overfitting. The decision tree model will be tested using the `rpart` inside of the `tidymodels` framework. After testing various model setups along the validation sets, the best model will be tuned via the appropriate decision tree specifications and final predictions and accuracy will be shown on the training and testing sets which are split 75/25.
+
+
+**Note on `tidymodels`: the `tidymodels` framework is a wrapper
+around the various packages that one can use for the same
+modeling methods.  The specific functions of this package may
+be new to the reader, however we hope that the intent of the 
+following code is easy to follow even for the reader unfamiliar
+with `tidymodels`.  We do not use the `tidymodels` framework
+for all questions in this homework.
+
+```{r}
+Datatrain <- read_rds('data/loans_dv_train.Rds') %>% 
+  mutate(Loan_Status = ifelse(Loan_Status.Y, "Y", "N")) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+
+datacv <- vfold_cv(Datatrain, v = 10, strata = Loan_Status)
+
+tree_engine <-
+    decision_tree(mode = "classification") %>% 
+    parsnip::set_engine(engine = "rpart")
+
+dt_wf <-
+    workflow() %>% 
+    workflows::add_model(tree_engine)
+```
+
+
+### Candidate models
+
+We ran several iterations of models to determine the best data
+preparation steps above.  We have not included each intermediate model.
+If the reader is interested in reading that code, the authors
+will make it available.
+
+
+
+#### Baseline model
+
+Kappa is a metric used to measure accuracy that is normalized
+based on the class distribution and will be used to compare model performance.
+For Kappa, values of 0-0.20 as slight, 0.21-0.40 as fair, 0.41-0.60 as moderate, 0.61-0.80 as substantial, and 0.81-1 as almost perfect.
+
+TODO Joshua, will you please add a reference for more information on Kappa?
+
+The results this model tested among 10-folds of a training set is 80% accuracy and 48% KAP. Other performance metrics are presented below.
+
+```{r}
+# Baseline Model = #1
+dt_recipe1 <-
+  recipe(Loan_Status ~ ., data = Datatrain)
+
+dt_recipe1 %>% prep()
+
+dt_wf1<-
+ dt_wf %>% 
+  add_recipe(dt_recipe1)
+
+wf1_results <- dt_wf1 %>% 
+  fit_resamples(
+    resamples= datacv, 
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
+
+wf1_results %>% collect_metrics(summarize = TRUE)
+
+All_metrics <- data.frame()
+
+wf_res_function <-
+  function(wf_results, modelname) {
+    # this function returns 
+    # ROC_AUC, accuracy, and KAPPA of a cross validated model result
+    
+    All_metrics %>% bind_rows(
+      collect_metrics(wf_results, summarize = T) %>%
+      mutate(model = modelname))
+  }
+
+All_metrics <- wf_res_function(wf1_results, "Baseline")
+```
+
+
+
+#### Down-sampling test model
+
+This model starts with the baseline and adds down-sampling to balance our response variable. The down-sampling was tested at a few ratios from 1:1 to 1:2. the optimal ratio is presented below at 1.8 with 35% `N` and 65% `Y` -- a 4% adjustment in the class balance.
+
+This model has lower accuracy and KAP likely because our dataset is not large enough. We do not use down-sampling in our final model.
+
+```{r}
+# Down-sampling = #3
+dt_recipe3 <-
+  dt_recipe1 %>% 
+  themis::step_downsample(Loan_Status, skip = FALSE, under_ratio = 1.8)
+
+table((bake(dt_recipe3 %>% prep(), new_data = Datatrain))$Loan_Status)
+
+dt_wf3<-
+ dt_wf %>% 
+  add_recipe(dt_recipe3)
+
+dt_recipe3 %>% prep()
+
+wf3_results <- dt_wf3 %>% 
+  fit_resamples(
+    resamples = datacv,  
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
+
+wf3_results %>% collect_metrics(summarize = TRUE)
+
+All_metrics <-
+  wf_res_function(wf3_results, "Downsample")
+```
+
+
+
+
+### Discretization Testing model
+
+In this model we bin `Total_Income`.  Binning features sometimes allows groupings to better predict our response variable. Binning was tested along various features and various bins, but the feature that improved model accuracy most when binning was the engineered feature `Total_Income`. 
+
+```{r}
+# Binned = #6
+dt_recipe6 <-
+  dt_recipe3 %>% 
+  step_discretize(Total_Income, num_breaks = 8)
+  
+dt_recipe6 %>% prep
+
+dt_wf6 <-
+ dt_wf %>% 
+  add_recipe(dt_recipe6)
+
+wf6_results <- dt_wf6 %>% 
+  fit_resamples(
+    resamples = datacv,
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
+
+wf6_results %>% collect_metrics(summarize = TRUE)
+
+All_metrics <- wf_res_function(wf6_results, "Binning")
+```
+
+Binning our engineered feature `Total_Income` increased our model KAP from 52% to 53% and our accuracy from 82.1% to 82.4% so we will retain these steps. 
+
+
+
+```{r}
+All_metrics %>% 
+  filter(.metric == "kap") %>% 
+  kable() %>% 
+  kable_styling(
+    full_width = FALSE, position = "center", bootstrap_options = c("hover"))
+```
+
+
+
+
+### Model Tuning 
+
+After optimizing our model based on various transformations across multiple validation datasets, the best model is selected and needs to be tuned. There are various specifications of a decision tree that can affect the performance. The ones that will be tuned in this section are:
+
+- `cost_complexity`: represents the amount of information gain required for a tree to continue splitting along a node
+
+- `tree_depth`: represents the maximum amount of branches a tree may extend before terminating
+
+- `min_n`: represents the minimum number of datapoints required at a node for a split to be made
+
+
+In order to test various values, a grid of these features are set up with various combinations of options as shown below. 
+
+```{r}
+tree_grid <- grid_regular(
+  cost_complexity(), tree_depth(), min_n(), levels = 4)
+tree_grid %>% 
+  kable %>% 
+  kable_styling(
+      full_width = F, position="center", bootstrap_options = c("hover")) %>%
+  scroll_box(height = "200px")
+```
+
+All of these values are testing on the 10-fold cross-validation set where the result of every combination along each 10 splits of the data are averaged. The results of this tuning exercise is plotted below. KAP is the metric used to select the best tree, where the minimum cost function, a tree depth of 5 and a minimal node size of 40 is shown to be optimal.
+
+```{r}
+doParallel::registerDoParallel()
+
+tree_engine <-
+  decision_tree(
+    mode = "classification",
+    cost_complexity = tune(), # min improvement needed at each node
+    tree_depth = tune(), # max depth of the tree allowed
+    min_n(tune()) # min number of datapoints required 
+  ) %>% 
+  set_engine(engine = "rpart")
+             
+set.seed(3)
+
+tree_rs <- tune_grid(
+  object =  tree_engine,
+  preprocessor = dt_recipe6,
+  resamples = datacv,
+  grid = tree_grid,
+  metrics = metric_set(accuracy, kap)
+)
+
+collect_metrics(tree_rs) %>% 
+  kable() %>% 
+  kable_styling(
+    full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+  scroll_box(height = "200px")
+
+tree_rs %>% autoplot() + theme_light(base_family = "IBMPlexSans")
+
+```
+
+
+
+
+
+
+
+
+### Finalize decision
+
+We can finalize our decision and create our decision tree based on the following specification:
+
+```{r}
+show_best(tree_rs, "kap")
+
+final_tree <- finalize_model(tree_engine, select_best(tree_rs, "kap"))
+
+final_tree
+```
+
+A visual of our fitted model tree to the training dataset is shown below. The first value in the tree nodes indicate Y/N on whether there loan default would be predicted at that node, the second values shows the probability associated with `N` on the left and `Y` on the right. the third row in the node shows the percentage of the data contained in each node. The top most node depicts the most descriptive feature of our classification model, while following nodes depict secondary descriptive features. Due to the tree specifications (40 data points needed minimum at each node) only two main features are used to predict `LoanStatus` which are `Credit_History` and `IncomeLoanRatio`. 
+
+
+```{r}
+final_wf<-
+  workflow() %>% 
+  add_model(final_tree) %>% 
+  add_recipe(dt_recipe6)
+
+wf_final_results<-
+final_wf %>% fit_resamples(resamples= datacv, 
+                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
+                           control = control_resamples(save_pred = T))
+
+
+#wf_final_results %>% collect_metrics(summarize = T)
+
+All_metrics<-
+wf_res_function(wf_final_results,"wf_final")
+
+dtmodel<-
+  final_wf %>% fit(data = Datatrain)
+
+#rpart.plot::rpart.plot(dtmodel$fit$fit$fit)
+rattle::fancyRpartPlot(dtmodel$fit$fit$fit,palettes="RdPu")
+
+```
+
+### Variable Importance Plot
+
+Additional information about the variable importance was extracted from the model and shown in the variable importance plot below. where `Credit_History` has an overwhelming weight of importance, followed by our engineered feature `IncomeLoanRatio`.
+
+```{r}
+#For plotting tree
+caret::varImp(dtmodel$fit$fit$fit) %>% mutate(Feature = rownames(.)) %>% 
+  ggplot(mapping = aes(x =fct_reorder(Feature,Overall), y = Overall))+
+  geom_col(fill ="skyblue3")+
+  coord_flip()+
+  defaulttheme+
+  labs(x = "Importance",
+       y = "Feature",
+       title = "Variable Importance")
+
+#traintransformed<-bake(dt_recipe6 %>% prep,Datatrain)
+#testtransformed<-bake(dt_recipe6 %>% prep,datatest)
+
+training_predictions<-
+predict(dtmodel,Datatrain, type = "class") %>% 
+  bind_cols(Datatrain$Loan_Status) %>% 
+  rename("Loan_Status"= "...2") %>% 
+  mutate(set = "Training")
+
+
+```
+
+### Confusion Matrix, Accuracy
+
+The confusion matrix and accuracy of our training set is shown below with an accuracy of 83.1% and kappa of 55.6%. The confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
+
+```{r}
+training_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
+
+metrics(training_predictions, truth = Loan_Status,estimate = .pred_class)
+
+
+```
+
+Similarly, the confusion matrix and accuracy of our testing set is shown below with an accuracy of 79.7% and kappa of 46.6%. Similar to the training dataset, the confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
+
+```{r}
+testing_predictions<-
+predict(dtmodel,datatest, type = "class") %>% 
+  bind_cols(datatest$Loan_Status) %>% 
+  rename("Loan_Status"= "...2") %>% 
+  mutate(set = "Testing")
+
+testing_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
+
+metrics(testing_predictions, truth = Loan_Status,estimate = .pred_class)
+
+```
+
+
+
+
+
+
+
+
