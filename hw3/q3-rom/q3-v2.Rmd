@@ -1,0 +1,463 @@
+---
+title: "Group 4 Assignment 3"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "April 4, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE)
+
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis',
+  'randomForest'
+  # 'htmlTable', 
+  # 'gmodels', 
+  # 'car', 
+  # 'mice', 
+  # 'tidyselect', 
+  # 'skimr', 
+  # 'tidymodels', 
+  # 'broom', 
+  # 'dotwhisker', 
+  # 'vip', 
+  # 'parsnip', 
+  # 'workflows', 
+  # 'recipes', 
+  # 'tune', 
+  # 'yardstick'
+)
+
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
+}
+
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
+
+```
+
+
+
+
+
+
+## (Q3) Random Forest {.tabset .tabset-fade .tabset-pills}
+
+We use the training and test datasets we created above and
+the `randomForest` package for this section of the homework.
+The `randomForest` package requires we make a few additional changes:
+
+* column names in our "dummy value" objects must be valid R variable names
+* the function will attempt regression if our response variable is numeric,
+  so we change it back to being a factor
+
+
+```{r}
+loans_train <- readr::read_rds('data/loans_train.Rds')
+loans_test <- readr::read_rds('data/loans_test.Rds')
+
+loans_dv_train <- readr::read_rds('data/loans_dv_train.Rds') %>% 
+  rename(
+    Dependents.3 = `Dependents.3+`,
+    Education.NotGraduate = `Education.Not Graduate`) %>% 
+  mutate(Loan_Status = factor(ifelse(Loan_Status.Y, 'Y', 'N'))) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+  
+loans_dv_test <- readr::read_rds('data/loans_dv_test.Rds') %>% 
+  rename(
+    Dependents.3 = `Dependents.3+`,
+    Education.NotGraduate = `Education.Not Graduate`) %>% 
+  mutate(Loan_Status = factor(ifelse(Loan_Status.Y, 'Y', 'N'))) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+```
+
+
+
+The random forest algorithm works well with all sorts of data:
+numeric and categorical, un-scaled and scaled, full rank and highly correlative.
+So, we should get similar results if we use the `loans_train` object
+(which has factor variables in single columns) or the `loans_dv_train`
+object which splits factor variables into dummy columns
+**including columns for base levels**.
+
+```{r}
+set.seed(521)
+m1 <- randomForest(Loan_Status ~ ., data = loans_train)
+set.seed(521)
+m1_dv <- randomForest(Loan_Status ~ ., data = loans_dv_train)
+print(m1)
+print(m1_dv)
+```
+
+
+
+
+
+TODO might need a re-write...
+
+
+### Default models, i.e., before tuning {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+set.seed(521)
+m1 <- randomForest(
+  Loan_Status ~ ., 
+  data = loans_train, 
+  mtry = 12, 
+  importance = TRUE)
+print(m1)
+importance(m1)
+plot(m1)
+```
+
+
+
+
+
+
+
+### Execution of Random Forest
+
+I ran the random forest and I very disatifsfied with the results. There is an error rate of 22.51% which I need to address. This means that I may have to investigate if a reduction of variables is needed for the random forest creation. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other.
+
+
+
+
+
+
+
+
+
+## (Q3c) Random Forest - Model with 3 Most Important Variables {.tabset .tabset-fade .tabset-pills}
+
+### Features Highlight
+
+Upon execution of the **importance** method in the previous model, I noticed that the strongest variable candidates are: **Credit_History**, **ApplicantIncome**, and **LoanAmount** due to them having the highest Mean Decrease Gini Coeeficient. I ran a subsequent randomForest function using these variables only and saw that the error rate went up to 26.91%.
+
+```{r}
+set.seed(121)
+m1a <- randomForest(Loan_Status ~ Credit_History + ApplicantIncome + LoanAmount, data=training1, mtry=3, importance=TRUE)
+m1a
+plot(m1a)
+```
+
+The plots for model and sub-model left me a little uneasy. Therefore, I decided to run another Random Forest model with the Categorical variables transformed into numerical variables and the dealing with multicollinear variables.
+
+
+
+
+
+
+
+
+
+## (Q3d) Random Forest - Variable Selection via Determining Highly-Correlated Variables {.tabset .tabset-fade .tabset-pills}
+
+### Determining Highly-Correlated Variables
+
+During my research into Random Forests, I have seen conflicting literature about the handling of multicollinear and numerical transformation of categorical variables. Some literature indicate it is unnecessary to numerically transform your categorical variables and others indicate otherwise. Moreover, the literature was not conclusive in determining if multicollinearity variable will affect the model. In this execution of the Random Forest model, I decided to explore both avenues to determine if I could find a model that would be satisfactory.
+
+To determine and eliminate a highly-correlated variable from the model, may improve the fitness of the models.
+
+Prior to executing the cor Pearson function, I had to transform the temporary categorical data variables into numerical equivalents. Category variables that needed to be transformed were **Loan_Status**, **Married**, **Self_Employed**, **Education**, **Gender**, **Dependents**, and **Property_Area** variables.
+
+```{r}
+hw3temp = hw3imputed
+hw3temp$Loan_Status = case_when(hw3temp$Loan_Status == 'N' ~ 0, 
+                                         hw3temp$Loan_Status == 'Y' ~ 1)
+hw3temp$Married = case_when(hw3temp$Married == 'No' ~ 0, 
+                                         hw3temp$Married == 'Yes' ~ 1)
+hw3temp$Self_Employed = case_when(hw3temp$Self_Employed == 'No' ~ 0, 
+                                         hw3temp$Self_Employed == 'Yes' ~ 1)
+hw3temp$Education = case_when(hw3temp$Education == 'Not Graduate' ~ 0, 
+                                         hw3temp$Education == 'Graduate' ~ 1)
+hw3temp$Gender = case_when(hw3temp$Gender == 'Female' ~ 0, 
+                                         hw3temp$Gender == 'Male' ~ 1)
+hw3temp$Dependents = case_when(hw3temp$Dependents == '0' ~ 0,
+                                         hw3temp$Dependents == '1' ~ 1,
+                                         hw3temp$Dependents == '2' ~ 2,
+                                         hw3temp$Dependents == '3+' ~ 3)
+hw3temp$Property_Area = case_when(hw3temp$Property_Area == 'Rural' ~ 0,
+                                         hw3temp$Property_Area == 'Semiurban' ~ 1,
+                                         hw3temp$Property_Area == 'Urban' ~ 2)
+summary(hw3temp)
+```
+
+I conducted a cor function using the Pearson method to find out of any correlations in the data. It was determined that only **Credit_History** had high positive correlation in 0.56. However, this number is in the midpoint in the positive correlation and is not very close to 1. Being close to 1 after the 0.80 range would convince me that this is a multicollinear variable. 
+
+```{r}
+relationship <- cor(hw3temp, method = "pearson", use = "complete.obs")
+kable(relationship, booktabs = 'T') %>% 
+  kable_styling(font_size = 8)
+corrplot(relationship, order = "original",tl.col = "black",method="circle")
+
+# correlations cont.
+temp1 <- as.data.frame(relationship) %>% dplyr::select(Loan_Status)
+
+# Looking for very highly correlated, arbitrarily set at > .5 or < -.5
+correlated_pos <- subset(temp1, temp1[,'Loan_Status'] > .5 & temp1[,'Loan_Status'] < 1)
+correlated_neg <- subset(temp1, temp1[,'Loan_Status'] < -.5 & temp1[,'Loan_Status'] > -1)
+```
+
+**Positive Correlated Variables** 
+
+```{r}
+correlated_pos
+```
+
+**Negative Correlated Variables** 
+
+```{r}
+correlated_neg
+```
+
+Based on a lecture from Professor Chris Mack, one way to determine which variable to eliminate from the model is to find the variables with high Variable Inflation Factor [MAC]. According to Professor Mack, if a variable has a high VIF, greater than 5, then we can determine that variable as a candidate of elimination due to its high inflation effect on other variables. His strategy involves an execution of a linear regression model against the data and use the vif method to determine which variables to eliminate.
+
+```{r}
+lmmodel <- lm(Loan_Status~.,data=hw3temp)
+summary(lmmodel)
+vif(lmmodel)
+```
+
+Upon running the **vif** function, you will see that **ApplicantIncome** and **LoanAmount** have the highest inflation factor values at 1.65 and 1.74 respectively. Notice that **Credit_History** as in the lower threshhold of numbers to eliminate. Observe in the correlation map above, **ApplicantIncome** and **LoanAmount** are within a light blue color range indicating that they have multicollinearity but below the 0.5 mark. According to Professor Mack, he indicated that any VIF values greater than 5 should be candidate variables for elimination. Given these indications, I am not eliminating any variables from the Random Forest model.
+
+Again, I used createDataPartition to develop the Training and Test data sets. I separated the training and test data set using 70/30 partition of the imputed data.
+
+```{r}
+set.seed(123)
+inTrain2 <- createDataPartition(y = hw3temp$Loan_Status, p=0.70, list = FALSE)
+training2 <- hw3temp[inTrain2,]
+testing2 <- hw3temp[-inTrain2,]
+```
+
+### Execution of Random Forest
+
+I ran the random forest and I am still disatifsfied with the results. There is no error rate to be concerned with, but only 32.25% of the variance can be explained in the model. A percentage close to 100% would make me feel confident for the Random Forest model. The plot, however, follows the curve of ideal Random Forests [JAM].
+
+```{r}
+m2 <- randomForest(Loan_Status ~ ., data=training2, mtry=11, importance=TRUE)
+m2
+importance(m2)
+plot(m2)
+```
+
+### Model with 3 Most Important Variables Using Transformed Data
+
+Upon execution of the **importance** method in the previous model, I noticed that the strongest variable candidates AGAIN are: **Credit_History**, **ApplicantIncome**, and **LoanAmount** due to them having the highest Mean Decrease Gini Coeeficient (IncNodePurity). I ran a subsequent randomForest function using these variables only and saw that while there was no error rate observed, the percent of variance explained actually went down to the low 20s. As indicated earlier, a percentage close to 100% would make me feel confident for the Random Forest model. The plot, however, follows the curve of ideal Random Forests.
+
+```{r}
+set.seed(123)
+m2a <- randomForest(Loan_Status ~ Credit_History + ApplicantIncome + LoanAmount, data=training2, mtry=3, importance=TRUE)
+m2a
+plot(m2a)
+```
+
+
+
+
+
+
+
+## (Q3e) Random Forest - Model Comparison {.tabset .tabset-fade .tabset-pills}
+
+In the final chore for this exercise, I will make predictions on all four generated random forest models and develop the confusion matrix for each. I will extract important values from these models and compare and discuss them.
+
+### Model 1
+
+```{r}
+prediction1 <- predict(m1,newdata = testing1)
+prediction1.cm <- confusionMatrix(prediction1, testing1$Loan_Status) 
+prediction1.cm
+```
+
+### Model 1a
+
+```{r}
+prediction1a <- predict(m1a,newdata = testing1)
+prediction1a.cm <- confusionMatrix(prediction1a, testing1$Loan_Status) 
+prediction1a.cm
+```
+
+### Model 2
+
+```{r}
+prediction2 <- factor(round(predict(m2, testing2, type='response')), levels=c('0', '1'))
+prediction2.cm <- confusionMatrix(data=prediction2, reference=factor(testing2$Loan_Status, levels=c('0', '1'))) 
+prediction2.cm
+```
+
+### Model 2a
+
+```{r}
+prediction2a <- factor(round(predict(m2a, testing2, type='response')), levels=c('0', '1'))
+prediction2a.cm <- confusionMatrix(data=prediction2a, reference=factor(testing2$Loan_Status, levels=c('0', '1'))) 
+prediction2a.cm
+```
+
+### Final Comparison
+
+- Regardless of variable selection or transformation of variables, the initial full Random Forest Model (Model 1) has the highest accuracy at 80% and F1-Score at 79%. Despite the high error rate indicated earlier, F1-Score and Accuracy seems to indicate that this Random Forest is an optimal model.
+
+- Manual selection of the optimal variables according to **vif** and multicollinear mitigation did not result in a better Random Forest model. 
+
+- Despite the numerical transformation of the categorical variables, the initial full Random Forest Model was (Model 1) was better than the full Random Forest Model with transformed data (Model 2).
+
+- By visual inspection of the confusion matrices, the p-value of the initial full Random Forest Model is signficantly less than 0.05 at 0.0001763. Model 2's p-value is 0.02. These indicate that both models are valid models. Models 1a and 2a have p-values of 0.086 and 0.41 respectively indicating that there is evidence that they are not valid models since their p-values are greater than 0.05.
+
+```{r}
+# Model 1 Values
+prediction1.accuracy <- prediction1.cm$overall['Accuracy']
+prediction1.TN <- prediction1.cm$table[1,1]
+prediction1.FP <- prediction1.cm$table[1,2]
+prediction1.FN <- prediction1.cm$table[2,1]
+prediction1.TP <- prediction1.cm$table[2,2]
+prediction1.TPR <- prediction1.TP /(prediction1.TP + prediction1.FN)
+prediction1.TNR <- prediction1.TN /(prediction1.TN + prediction1.FP)
+prediction1.FPR <- prediction1.FP /(prediction1.TN + prediction1.FP)
+prediction1.FNR <- prediction1.FN /(prediction1.TP + prediction1.FN)
+prediction1.precision <- prediction1.TP / (prediction1.TP + prediction1.FP)
+prediction1.recall <- prediction1.TP / (prediction1.TP + prediction1.FN)
+prediction1.specificity <- prediction1.TN / (prediction1.TN + prediction1.FP)
+prediction1.f1score <- 2 * ((prediction1.precision * prediction1.recall) / (prediction1.precision + prediction1.recall))
+```
+
+```{r}
+# Model 1a Values
+prediction1a.accuracy <- prediction1a.cm$overall['Accuracy']
+prediction1a.TN <- prediction1a.cm$table[1,1]
+prediction1a.FP <- prediction1a.cm$table[1,2]
+prediction1a.FN <- prediction1a.cm$table[2,1]
+prediction1a.TP <- prediction1a.cm$table[2,2]
+prediction1a.TPR <- prediction1a.TP /(prediction1a.TP + prediction1a.FN)
+prediction1a.TNR <- prediction1a.TN /(prediction1a.TN + prediction1a.FP)
+prediction1a.FPR <- prediction1a.FP /(prediction1a.TN + prediction1a.FP)
+prediction1a.FNR <- prediction1a.FN /(prediction1a.TP + prediction1a.FN)
+prediction1a.precision <- prediction1a.TP / (prediction1a.TP + prediction1a.FP)
+prediction1a.recall <- prediction1a.TP / (prediction1a.TP + prediction1a.FN)
+prediction1a.specificity <- prediction1a.TN / (prediction1a.TN + prediction1a.FP)
+prediction1a.f1score <- 2 * ((prediction1a.precision * prediction1a.recall) / (prediction1a.precision + prediction1a.recall))
+```
+
+```{r}
+# Model 2 Values
+prediction2.accuracy <- prediction2.cm$overall['Accuracy']
+prediction2.TN <- prediction2.cm$table[1,1]
+prediction2.FP <- prediction2.cm$table[1,2]
+prediction2.FN <- prediction2.cm$table[2,1]
+prediction2.TP <- prediction2.cm$table[2,2]
+prediction2.TPR <- prediction2.TP /(prediction2.TP + prediction2.FN)
+prediction2.TNR <- prediction2.TN /(prediction2.TN + prediction2.FP)
+prediction2.FPR <- prediction2.FP /(prediction2.TN + prediction2.FP)
+prediction2.FNR <- prediction2.FN /(prediction2.TP + prediction2.FN)
+prediction2.precision <- prediction2.TP / (prediction2.TP + prediction2.FP)
+prediction2.recall <- prediction2.TP / (prediction2.TP + prediction2.FN)
+prediction2.specificity <- prediction2.TN / (prediction2.TN + prediction2.FP)
+prediction2.f1score <- 2 * ((prediction2.precision * prediction2.recall) / (prediction2.precision + prediction2.recall))
+```
+
+```{r}
+# Model 2a Values
+prediction2a.accuracy <- prediction2a.cm$overall['Accuracy']
+prediction2a.TN <- prediction2a.cm$table[1,1]
+prediction2a.FP <- prediction2a.cm$table[1,2]
+prediction2a.FN <- prediction2a.cm$table[2,1]
+prediction2a.TP <- prediction2a.cm$table[2,2]
+prediction2a.TPR <- prediction2a.TP /(prediction2a.TP + prediction2a.FN)
+prediction2a.TNR <- prediction2a.TN /(prediction2a.TN + prediction2a.FP)
+prediction2a.FPR <- prediction2a.FP /(prediction2a.TN + prediction2a.FP)
+prediction2a.FNR <- prediction2a.FN /(prediction2a.TP + prediction2a.FN)
+prediction2a.precision <- prediction2a.TP / (prediction2a.TP + prediction2a.FP)
+prediction2a.recall <- prediction2a.TP / (prediction2a.TP + prediction2a.FN)
+prediction2a.specificity <- prediction2a.TN / (prediction2a.TN + prediction2a.FP)
+prediction2a.f1score <- 2 * ((prediction2a.precision * prediction2a.recall) / (prediction2a.precision + prediction2a.recall))
+```
+
+```{r, echo=FALSE}
+Model <- c("RF1","RF1A", "RF2", "RF2A")
+Accuracy <- c(prediction1.accuracy, prediction1a.accuracy, prediction2.accuracy,prediction2a.accuracy)
+Recall <- c(prediction1.recall, prediction1a.accuracy, prediction2.recall,prediction2a.recall)
+Specificity <- c(prediction1.specificity, prediction1a.specificity, prediction2.specificity,prediction2a.specificity)
+Precision <- c(prediction1.precision, prediction1a.precision, prediction2.precision,prediction2a.precision)
+F1Score <- c(prediction1.f1score, prediction1a.f1score, prediction2.f1score,prediction2a.f1score)
+TPR <- c(prediction1.TPR, prediction1a.TPR, prediction2.TPR, prediction2a.TPR)
+TNR <- c(prediction1.TNR, prediction1a.TNR, prediction2.TNR, prediction2a.TNR)
+FPR <- c(prediction1.FPR, prediction1a.FPR, prediction2.FPR, prediction2a.FPR)
+FNR <- c(prediction1.FNR, prediction1a.FNR, prediction2.FNR, prediction2a.FNR)
+
+tableModel <- data.frame(Model,Accuracy,Recall,Specificity,Precision,F1Score,TPR,TNR,FPR,FNR)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### References
+
+[JAM] G. James, D. Witten, T. Hastie, R. Tibshirani. An Introduction to Statistical Learning : with Applications in R. New York: Springer, 2013.
+
+[MAC] C. Mack. Lecture52 (Data2Decision) Detecting Multicollinearity in R. Retrieved from website: https://www.youtube.com/watch?v=QruEcbgfhzo
+
+[RAN] Random Forests. Retrieved from website: https://uc-r.github.io/random_forests
+
+[RRA] R Random Forest Tutorial with Example. Retrieved from website: https://www.guru99.com/r-random-forest-tutorial.html
+
+
+
+
+
+
+
+

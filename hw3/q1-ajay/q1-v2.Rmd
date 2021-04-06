@@ -341,32 +341,3 @@ readr::write_rds(penguins_na_omit, 'data/penguins_na_omit.Rds')
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-## References
-
-1. https://www.kdnuggets.com/2017/09/missing-data-imputation-using-r.html
-
-2. https://www.researchgate.net/post/What-are-the-correlation-values-with-respect-to-low-moderate-high-correlation-specially-in-medical-research#:~:text=Correlation%20coefficients%20whose%20magnitude%20are,can%20be%20considered%20highly%20correlated.
-
-3. https://rpubs.com/sediaz/Correlations
-
-4. https://towardsdatascience.com/k-nearest-neighbors-algorithm-with-examples-in-r-simply-explained-KNN-1f2c88da405c
-
-5. https://www.datacamp.com/community/tutorials/machine-learning-in-r#normalization
-
-6. http://r-statistics.co/Missing-Value-Treatment-With-R.html
-
-
-
-
-
