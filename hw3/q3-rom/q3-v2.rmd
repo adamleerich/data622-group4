@@ -112,130 +112,74 @@ m1_dv <- randomForest(Loan_Status ~ ., data = loans_dv_train)
 print(m1_dv)
 ```
 
-We ran the random forests for both default models and we were very disatisfied with the results. There is an error rate of 19.31% which we need to address. This means that we may have to investigate if a reduction of variables is needed for the random forest creation. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. Considering the similarities between the default models, we decided to keep the **m1** model as Model 1 for comparisons with the other Random Forest models in this section.
+We ran the random forests for both default models and we were very disatisfied with the results. There is an error rate of 19.31%. We will find out later when we run the confusion matrix of the prediction values that Model 1 has an accuracy of 81.7%, a Kappa of 0.522, and a Sensitivity of 0.521. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. Considering the similarities between the default models, we decided to keep the **m1** model as Model 1 for comparisons with the other Random Forest models in this section.
 
 ```{r}
 plot(m1)
 ```
 
 
-## (Q3b) Random Forest - Model with 3 Most Important Variables (Model 2) {.tabset .tabset-fade .tabset-pills}
+## (Q3b) Random Forest - Model based on Model 1 by Tuning Number of Trees (Model 2) {.tabset .tabset-fade .tabset-pills}
 
 #### Features Highlight
 
-Upon execution of the **importance** method in the previous model, we noticed that the strongest variable candidates were: **Credit_History**, **Total_Income**, and **IncomeLoanRatio** due to them having the highest Mean Decrease Gini Coeeficient. We ran a subsequent randomForest function using these variables only and saw that the error rate went up to 22.78%.
+The error rate for the previous model may be unacceptable. The previous model used 500 trees. In the next execution of Random Forest, we try to see if we can reduce the error rate by manipulating the number of trees used. Other indices that we used to determine what could be the optimal model for this exercise are Accuracy, Error Rate, Kappa, and Sensitivity. We ran Model 2 multiple times using ntree parameter for 100, 200, 300, 400, 425, 450, and 475 random trees.
+
+```{r, echo=FALSE}
+ntree <- c("100","200","300","400","425","450","475")
+Accuracy <- c("81.70%","81.70%","81.05%","82.35%","83.00%","83.00%","83.00%")
+ErrorRate <- c("19.96%","20.39%","20.17%","19.75%","19.52%","19.96%","19.74%")
+Kappa <- c("0.533","0.533","0.513","0.547","0.566","0.566","0.566")
+Sensitivity <- c("0.542","0.542","0.521","0.542","0.563","0.563","0.563")
+tableModel <- data.frame(ntree,Accuracy,ErrorRate,Kappa,Sensitivity)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+The table summarizes the values derived from running Model 2. Based on this exercise, we determined that the optimal Model 2 would be one with ntree = 425 because the combination of indices Accuracy, Error Rate, Kappa, and Sensitivity. ntree = 425 has the highest Accuracy, lowest Error rate, highest Kappa, and highest Sensitivity if you take all indices together. Moreover, the Optimal Model 2 with ntree = 425 is slightly better than Model 1 in all indices with the exception of Error Rate.
 
 ```{r}
-importance(m1)
 set.seed(121)
-m1a <- randomForest(Loan_Status ~ Credit_History + Total_Income + IncomeLoanRatio, data=loans_train, mtry=3, importance=TRUE)
-m1a
-plot(m1a)
-```
-
-The plot for Model 2 left us a little uneasy. Therefore, We decided to run another Random Forest model with the Categorical variables transformed into numerical variables and to handle the possibility of multicollinear variables.
-
-## (Q3c) Random Forest - Variable Selection via Determining Highly-Correlated Variables (Model 3) {.tabset .tabset-fade .tabset-pills}
-
-#### Determining Highly-Correlated Variables
-
-During our research into Random Forests, we have seen conflicting literature about the handling of multicollinear and numerical transformation of categorical variables. Some literature indicate it is unnecessary to numerically transform your categorical variables and others indicate otherwise. Moreover, the literature was not conclusive in determining if multicollinearity variable will affect the model. In this execution of the Random Forest model, we decided to explore both avenues to determine if we could find a model that would be satisfactory.
-
-To determine and eliminate a highly-correlated variable from the model may improve the fitness of the models.
-
-Prior to executing the cor Pearson function, we had to transform the temporary categorical data variables into numerical equivalents. Category variables that needed to be transformed were **Loan_Status**, **Married**, **Self_Employed**, **Education**, **Credit_Histor**, **Dependents**, and **Property_Area** variables.
-
-```{r}
-hw3temp = loans_train
-hw3temp$Loan_Status = case_when(hw3temp$Loan_Status == 'N' ~ 0, 
-                                         hw3temp$Loan_Status == 'Y' ~ 1)
-hw3temp$Credit_History = case_when(hw3temp$Credit_History == '0' ~ 0, 
-                                         hw3temp$Credit_History == '1' ~ 1)
-hw3temp$Married = case_when(hw3temp$Married == 'No' ~ 0, 
-                                         hw3temp$Married == 'Yes' ~ 1)
-hw3temp$Self_Employed = case_when(hw3temp$Self_Employed == 'No' ~ 0, 
-                                         hw3temp$Self_Employed == 'Yes' ~ 1)
-hw3temp$Education = case_when(hw3temp$Education == 'Not Graduate' ~ 0, 
-                                         hw3temp$Education == 'Graduate' ~ 1)
-hw3temp$Dependents = case_when(hw3temp$Dependents == '0' ~ 0,
-                                         hw3temp$Dependents == '1' ~ 1,
-                                         hw3temp$Dependents == '2' ~ 2,
-                                         hw3temp$Dependents == '3+' ~ 3)
-hw3temp$Property_Area = case_when(hw3temp$Property_Area == 'Rural' ~ 0,
-                                         hw3temp$Property_Area == 'Semiurban' ~ 1,
-                                         hw3temp$Property_Area == 'Urban' ~ 2)
-```
-
-We conducted a cor function using the Pearson method to find out of any correlations in the data. It was determined that only **Credit_History** had high positive correlation in 0.56. However, this number is in the midpoint in the positive correlation and is not very close to 1. Being close to 1 after the 0.80 range would convince us that this is a multicollinear variable. 
-
-```{r}
-relationship <- cor(hw3temp, method = "pearson", use = "complete.obs")
-kable(relationship, booktabs = 'T') %>% 
-  kable_styling(font_size = 8)
-corrplot(relationship, order = "original",tl.col = "black",method="circle")
-# correlations cont.
-temp1 <- as.data.frame(relationship) %>% dplyr::select(Loan_Status)
-# Looking for very highly correlated, arbitrarily set at > .5 or < -.5
-correlated_pos <- subset(temp1, temp1[,'Loan_Status'] > .5 & temp1[,'Loan_Status'] < 1)
-correlated_neg <- subset(temp1, temp1[,'Loan_Status'] < -.5 & temp1[,'Loan_Status'] > -1)
-```
-
-**Positive Correlated Variables** 
-
-```{r}
-correlated_pos
-```
-
-**Negative Correlated Variables** 
-
-```{r}
-correlated_neg
-```
-
-Based on a lecture from Professor Chris Mack, one way to determine which variable to eliminate from the model is to find the variables with high Variable Inflation Factor [MAC]. According to Professor Mack, if a variable has a high VIF, greater than 5, then we can determine that variable as a candidate of elimination due to its high inflation effect on other variables. His strategy involves an execution of a linear regression model against the data and use the vif method to determine which variables to eliminate.
-
-```{r}
-lmmodel <- lm(Loan_Status~.,data=hw3temp)
-summary(lmmodel)
-vif(lmmodel)
-```
-
-Upon running the **vif** function, you will see that **Total_Income** and **IncomeLoanRatio** have the highest inflation factor values at 4.10 and 2.96 respectively. Notice that **Credit_History** as in the lower threshhold of numbers to eliminate. Observe in the correlation map above, **Total_Income** and **IncomeLoandRatio** are within a light blue color range indicating that they have multicollinearity but below the 0.5 mark. According to Professor Mack, he indicated that any VIF values greater than 5 should be candidate variables for elimination. Given these indications, we are not eliminating any variables from the Random Forest model.
-
-Again, we used createDataPartition to develop the Training and Test data sets. we separated the training and test data set using 70/30 partition of the imputed data.
-
-```{r}
-set.seed(123)
-inTrain2 <- createDataPartition(y = hw3temp$Loan_Status, p=0.70, list = FALSE)
-training2 <- hw3temp[inTrain2,]
-testing2 <- hw3temp[-inTrain2,]
-```
-
-#### Execution of Random Forest
-
-We ran the random forest and we were still disatifsfied with the results. There is no error rate to be concerned with, but only 29.51% of the variance can be explained in the model. A percentage close to 100% would have made us feel confident for the Random Forest model. The plot, however, follows the curve of ideal Random Forests [JAM].
-
-```{r}
-m2 <- randomForest(Loan_Status ~ ., data=training2, mtry=11, importance=TRUE)
-m2
-importance(m2)
+ntreecand = 425
+m2 <- randomForest(Loan_Status ~ ., data = loans_train, ntree = ntreecand)
+print(m2)
 plot(m2)
 ```
 
-## (Q3d) Model with 3 Most Important Variables Using Transformed Data (Model 4)
+## (Q3c) Random Forest - Model based on Optimal Model 2 by Tuning Number of Variables (Model 3) {.tabset .tabset-fade .tabset-pills}
 
-Upon execution of the **importance** method in the previous model, we noticed that the strongest variable candidates AGAIN are: **Credit_History**, **Total_Income**, and **IncomeLoanAmountRatio** due to them having the highest Mean Decrease Gini Coeeficient (IncNodePurity). We ran a subsequent randomForest function using these variables only and saw that while there was no error rate observed, the percent of variance explained actually went up slightly to 25.89%. As indicated earlier, a percentage close to 100% would have made us feel confident for the Random Forest model. The plot, however, follows the curve of ideal Random Forests.
 
-```{r}
-set.seed(123)
-m2a <- randomForest(Loan_Status ~ Credit_History + Total_Income + LoanAmount, data=training2, mtry=3, importance=TRUE)
-m2a
-plot(m2a)
+#### Execution of Random Forest
+
+Model 2 with ntree = 425 may be the optimal solution up to this point. However, we wanted to investigate further if the number of variables (mtry) will help increase the Accuracy of the model. In the next execution of Random Forest, we try to see if when can reduce the error rate while increasing Accuracy by manipulating the number of variables used. Other indices that we used to determine what could be the optimal model for this exercise are Accuracy, Error Rate, Kappa, and Sensitivity. We ran Model 3 multiple times using mtry parameter for 2, 3, 4, 5, 6, and 7 variables.
+
+```{r, echo=FALSE}
+mtry <- c("2","3","4","5","6","7")
+Accuracy <- c("80.39%","83.00%","80.39%","81.05%","80.39%","79.74%")
+ErrorRate <- c("19.09%","19.52%","19.96%","19.96%","19.74%","19.96%")
+Kappa <- c("0.487","0.566","0.512","0.511","0.525","0.515")
+Sensitivity <- c("0.479","0.563","0.563","0.563","0.563","0.563")
+tableModel <- data.frame(mtry,Accuracy,ErrorRate,Kappa,Sensitivity)
+tableModel %>%
+  kable() %>%
+  kable_styling()
 ```
 
-## (Q3e) Random Forest - Model Comparison {.tabset .tabset-fade .tabset-pills}
+The table summarizes the values derived from running Model 3. Based on this exercise, we determined that the optimal Model 3 would be one with mtry = 3 because the combination of indices Accuracy, Error Rate, Kappa, and Sensitivity. mtry = 3 has the highest Accuracy, lowest Error rate, highest Kappa, and highest Sensitivity if you take all indices together. Moreover, the Optimal Model 3 with mtry = 3 is slightly better than Model 1 in all indices with the exception of Error Rate. Coincidentally, the default mtry for Model 2 is 3: the same as the optimal version of Model 3.
 
-In the final chore for this exercise, we made predictions on all four generated random forest models and developed the confusion matrix for each. We extracted important values from these models and compared and discussed them.
+```{r}
+set.seed(121)
+mtrycand = 3
+m3 <- randomForest(Loan_Status ~ ., data = loans_train, ntree = ntreecand, mtry = mtrycand)
+print(m3)
+plot(m3)
+```
+
+
+## (Q3d) Random Forest - Model Comparison {.tabset .tabset-fade .tabset-pills}
+
+In the final chore for this exercise, we made predictions on all three generated random forest models and developed the confusion matrix for each. We extracted important values from these models and compared and discussed them.
 
 #### Model 1
 
@@ -248,40 +192,33 @@ prediction1.cm
 #### Model 2
 
 ```{r}
-prediction1a <- predict(m1a,newdata = loans_test)
-prediction1a.cm <- confusionMatrix(prediction1a, loans_test$Loan_Status) 
-prediction1a.cm
+prediction2 <- predict(m2,newdata = loans_test)
+prediction2.cm <- confusionMatrix(prediction2, loans_test$Loan_Status) 
+prediction2.cm
 ```
 
 #### Model 3
 
 ```{r}
-prediction2 <- factor(round(predict(m2, testing2, type='response')), levels=c('0', '1'))
-prediction2.cm <- confusionMatrix(data=prediction2, reference=factor(testing2$Loan_Status, levels=c('0', '1'))) 
-prediction2.cm
+prediction3 <- predict(m3,newdata = loans_test)
+prediction3.cm <- confusionMatrix(prediction3, loans_test$Loan_Status) 
+prediction3.cm
 ```
 
-#### Model 4
-
-```{r}
-prediction2a <- factor(round(predict(m2a, testing2, type='response')), levels=c('0', '1'))
-prediction2a.cm <- confusionMatrix(data=prediction2a, reference=factor(testing2$Loan_Status, levels=c('0', '1'))) 
-prediction2a.cm
-```
 
 #### Final Comparison
 
-- Regardless of variable selection or transformation of variables, the initial full Random Forest Model (Model 1) has the highest accuracy at 81.7% and F1-Score at 87.72%. Despite the high error rate indicated earlier, F1-Score and Accuracy seemed to indicate that this Random Forest is an optimal model.
+- Random Forest Model 2 has the highest accuracy at 83.00% and F1-Score at 88.5%. Despite the high error rate indicated earlier, F1-Score and Accuracy seemed to indicate that this Random Forest is an optimal model.
 
-- Manual selection of the optimal variables according to **vif** and multicollinear mitigation did not result in a better Random Forest model. 
+- By visual inspection of the confusion matrices, the p-value of Random Forest Model is signficantly less than 0.05 at 4.049e-05. Model 1's p-value at 0.0002 indicating that there is sufficient evidence that it is a viable model, but Model 2's p-value is significantly less than that of Model 2. Model 3's p-value is the same as that of Model 2 because both models have been found out to be the same with mtry = 3 and ntree = 425. The very low p-value indicates that their is sufficient evidence that Random Forest Model 2 is a viable model for further consideration.
 
-- Despite the numerical transformation of the categorical variables, the initial full Random Forest Model was (Model 1) was better than the full Random Forest Model with transformed data (Model 3).
-
-- By visual inspection of the confusion matrices, the p-value of the initial full Random Forest Model (Model 1) is signficantly less than 0.05 at 0.0001923. Model 3's p-value is 0.035. These indicate that both models are valid models. Models 2 and 4 have p-values of 0.012 and 0.20 respectively. Model 4's p-value indicated that there is evidence that it is not a valid model since its p-values are greater than 0.05.
+- Model 2 (**m2**) is the optimal Random Forest model in this exercise based on its favorable Accuracy, Kappa, F1-Score, and Sensitivity.
 
 ```{r}
 # Model 1 Values
 prediction1.accuracy <- prediction1.cm$overall['Accuracy']
+prediction1.kappa <- prediction1.cm$overall['Kappa']
+prediction1.sensitivity <- prediction1.cm$byClass['Sensitivity']
 prediction1.TN <- prediction1.cm$table[1,1]
 prediction1.FP <- prediction1.cm$table[1,2]
 prediction1.FN <- prediction1.cm$table[2,1]
@@ -298,24 +235,9 @@ prediction1.f1score <- 2 * ((prediction1.precision * prediction1.recall) / (pred
 
 ```{r}
 # Model 2 Values
-prediction1a.accuracy <- prediction1a.cm$overall['Accuracy']
-prediction1a.TN <- prediction1a.cm$table[1,1]
-prediction1a.FP <- prediction1a.cm$table[1,2]
-prediction1a.FN <- prediction1a.cm$table[2,1]
-prediction1a.TP <- prediction1a.cm$table[2,2]
-prediction1a.TPR <- prediction1a.TP /(prediction1a.TP + prediction1a.FN)
-prediction1a.TNR <- prediction1a.TN /(prediction1a.TN + prediction1a.FP)
-prediction1a.FPR <- prediction1a.FP /(prediction1a.TN + prediction1a.FP)
-prediction1a.FNR <- prediction1a.FN /(prediction1a.TP + prediction1a.FN)
-prediction1a.precision <- prediction1a.TP / (prediction1a.TP + prediction1a.FP)
-prediction1a.recall <- prediction1a.TP / (prediction1a.TP + prediction1a.FN)
-prediction1a.specificity <- prediction1a.TN / (prediction1a.TN + prediction1a.FP)
-prediction1a.f1score <- 2 * ((prediction1a.precision * prediction1a.recall) / (prediction1a.precision + prediction1a.recall))
-```
-
-```{r}
-# Model 3 Values
 prediction2.accuracy <- prediction2.cm$overall['Accuracy']
+prediction2.kappa <- prediction2.cm$overall['Kappa']
+prediction2.sensitivity <- prediction2.cm$byClass['Sensitivity']
 prediction2.TN <- prediction2.cm$table[1,1]
 prediction2.FP <- prediction2.cm$table[1,2]
 prediction2.FN <- prediction2.cm$table[2,1]
@@ -331,44 +253,44 @@ prediction2.f1score <- 2 * ((prediction2.precision * prediction2.recall) / (pred
 ```
 
 ```{r}
-# Model 4 Values
-prediction2a.accuracy <- prediction2a.cm$overall['Accuracy']
-prediction2a.TN <- prediction2a.cm$table[1,1]
-prediction2a.FP <- prediction2a.cm$table[1,2]
-prediction2a.FN <- prediction2a.cm$table[2,1]
-prediction2a.TP <- prediction2a.cm$table[2,2]
-prediction2a.TPR <- prediction2a.TP /(prediction2a.TP + prediction2a.FN)
-prediction2a.TNR <- prediction2a.TN /(prediction2a.TN + prediction2a.FP)
-prediction2a.FPR <- prediction2a.FP /(prediction2a.TN + prediction2a.FP)
-prediction2a.FNR <- prediction2a.FN /(prediction2a.TP + prediction2a.FN)
-prediction2a.precision <- prediction2a.TP / (prediction2a.TP + prediction2a.FP)
-prediction2a.recall <- prediction2a.TP / (prediction2a.TP + prediction2a.FN)
-prediction2a.specificity <- prediction2a.TN / (prediction2a.TN + prediction2a.FP)
-prediction2a.f1score <- 2 * ((prediction2a.precision * prediction2a.recall) / (prediction2a.precision + prediction2a.recall))
+# Model 3 Values
+prediction3.accuracy <- prediction3.cm$overall['Accuracy']
+prediction3.kappa <- prediction3.cm$overall['Kappa']
+prediction3.sensitivity <- prediction3.cm$byClass['Sensitivity']
+prediction3.TN <- prediction3.cm$table[1,1]
+prediction3.FP <- prediction3.cm$table[1,2]
+prediction3.FN <- prediction3.cm$table[2,1]
+prediction3.TP <- prediction3.cm$table[2,2]
+prediction3.TPR <- prediction3.TP /(prediction3.TP + prediction3.FN)
+prediction3.TNR <- prediction3.TN /(prediction3.TN + prediction3.FP)
+prediction3.FPR <- prediction3.FP /(prediction3.TN + prediction3.FP)
+prediction3.FNR <- prediction3.FN /(prediction3.TP + prediction3.FN)
+prediction3.precision <- prediction3.TP / (prediction3.TP + prediction3.FP)
+prediction3.recall <- prediction3.TP / (prediction3.TP + prediction3.FN)
+prediction3.specificity <- prediction3.TN / (prediction3.TN + prediction3.FP)
+prediction3.f1score <- 2 * ((prediction3.precision * prediction3.recall) / (prediction3.precision + prediction3.recall))
 ```
 
 ```{r, echo=FALSE}
-Model <- c("Model 1","Model 2", "Model 3", "Model 4")
-Accuracy <- c(prediction1.accuracy, prediction1a.accuracy, prediction2.accuracy,prediction2a.accuracy)
-Recall <- c(prediction1.recall, prediction1a.accuracy, prediction2.recall,prediction2a.recall)
-Specificity <- c(prediction1.specificity, prediction1a.specificity, prediction2.specificity,prediction2a.specificity)
-Precision <- c(prediction1.precision, prediction1a.precision, prediction2.precision,prediction2a.precision)
-F1Score <- c(prediction1.f1score, prediction1a.f1score, prediction2.f1score,prediction2a.f1score)
-TPR <- c(prediction1.TPR, prediction1a.TPR, prediction2.TPR, prediction2a.TPR)
-TNR <- c(prediction1.TNR, prediction1a.TNR, prediction2.TNR, prediction2a.TNR)
-FPR <- c(prediction1.FPR, prediction1a.FPR, prediction2.FPR, prediction2a.FPR)
-FNR <- c(prediction1.FNR, prediction1a.FNR, prediction2.FNR, prediction2a.FNR)
-tableModel <- data.frame(Model,Accuracy,Recall,Specificity,Precision,F1Score,TPR,TNR,FPR,FNR)
+Model <- c("Model 1","Model 2", "Model 3")
+Accuracy <- c(prediction1.accuracy, prediction2.accuracy, prediction3.accuracy)
+Kappa <- c(prediction1.kappa, prediction2.kappa, prediction3.kappa)
+Sensitivity <- c(prediction1.sensitivity, prediction2.sensitivity, prediction3.sensitivity)
+Recall <- c(prediction1.recall, prediction2.recall, prediction3.recall)
+Specificity <- c(prediction1.specificity, prediction2.specificity, prediction3.specificity)
+Precision <- c(prediction1.precision, prediction2.precision, prediction3.precision)
+F1Score <- c(prediction1.f1score, prediction2.f1score, prediction3.f1score)
+TPR <- c(prediction1.TPR, prediction2.TPR, prediction3.TPR)
+TNR <- c(prediction1.TNR, prediction2.TNR, prediction3.TNR)
+FPR <- c(prediction1.FPR, prediction2.FPR, prediction3.FPR)
+FNR <- c(prediction1.FNR, prediction2.FNR, prediction3.FNR)
+tableModel <- data.frame(Model,Accuracy,Kappa, Sensitivity, Recall,Specificity,Precision,F1Score)
 tableModel %>%
   kable() %>%
   kable_styling()
 ```
 
 ## References
-
-[JAM] G. James, D. Witten, T. Hastie, R. Tibshirani. An Introduction to Statistical Learning : with Applications in R. New York: Springer, 2013.
-
-[MAC] C. Mack. Lecture52 (Data2Decision) Detecting Multicollinearity in R. Retrieved from website: https://www.youtube.com/watch?v=QruEcbgfhzo
 
 [RAN] Random Forests. Retrieved from website: https://uc-r.github.io/random_forests
 
