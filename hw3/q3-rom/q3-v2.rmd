@@ -1,0 +1,308 @@
+---
+title: "Group 4 Assignment 3"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "April 4, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE)
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis',
+  'randomForest',
+  'car'
+  # 'htmlTable', 
+  # 'gmodels', 
+  # 'mice', 
+  # 'tidyselect', 
+  # 'skimr', 
+  # 'tidymodels', 
+  # 'broom', 
+  # 'dotwhisker', 
+  # 'vip', 
+  # 'parsnip', 
+  # 'workflows', 
+  # 'recipes', 
+  # 'tune', 
+  # 'yardstick'
+)
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
+}
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
+```
+
+## (Q3a) Random Forest (Model 1) {.tabset .tabset-fade .tabset-pills}
+
+We used the training and test datasets we created above and
+the `randomForest` package for this section of the homework.
+The `randomForest` package requires we make a few additional changes:
+
+* column names in our "dummy value" objects must be valid R variable names
+* the function will attempt regression if our response variable is numeric,
+  so we change it back to being a factor
+
+```{r}
+loans_train <- readr::read_rds('data/loans_train.Rds')
+loans_test <- readr::read_rds('data/loans_test.Rds')
+loans_dv_train <- readr::read_rds('data/loans_dv_train.Rds') %>% 
+  rename(
+    Dependents.3 = `Dependents.3+`,
+    Education.NotGraduate = `Education.Not Graduate`) %>% 
+  mutate(Loan_Status = factor(ifelse(Loan_Status.Y, 'Y', 'N'))) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+  
+loans_dv_test <- readr::read_rds('data/loans_dv_test.Rds') %>% 
+  rename(
+    Dependents.3 = `Dependents.3+`,
+    Education.NotGraduate = `Education.Not Graduate`) %>% 
+  mutate(Loan_Status = factor(ifelse(Loan_Status.Y, 'Y', 'N'))) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+```
+
+The random forest algorithm works well with all sorts of data:
+numeric and categorical, un-scaled and scaled, full rank and highly correlative.
+So, we should get similar results if we use the `loans_train` object
+(which has factor variables in single columns) or the `loans_dv_train`
+object which splits factor variables into dummy columns
+**including columns for base levels**.
+
+#### Default model 1 (which has factor variables in single columns)
+
+```{r}
+set.seed(521)
+m1 <- randomForest(Loan_Status ~ ., data = loans_train)
+print(m1)
+```
+
+#### Default model 2 (which splits factor variables into dummy columns)
+
+```{r}
+set.seed(521)
+m1_dv <- randomForest(Loan_Status ~ ., data = loans_dv_train)
+print(m1_dv)
+```
+
+We ran the random forests for both default models and we were very disatisfied with the results. There is an error rate of 19.31%. We will find out later when we run the confusion matrix of the prediction values that Model 1 has an accuracy of 81.7%, a Kappa of 0.522, and a Sensitivity of 0.521. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. Considering the similarities between the default models, we decided to keep the **m1** model as Model 1 for comparisons with the other Random Forest models in this section.
+
+```{r}
+plot(m1)
+```
+
+
+## (Q3b) Random Forest - Model based on Model 1 by Tuning Number of Trees (Model 2) {.tabset .tabset-fade .tabset-pills}
+
+#### Features Highlight
+
+The error rate for the previous model may be unacceptable. The previous model used 500 trees. In the next execution of Random Forest, we try to see if we can reduce the error rate by manipulating the number of trees used. Other indices that we used to determine what could be the optimal model for this exercise are Accuracy, Error Rate, Kappa, and Sensitivity. We ran Model 2 multiple times using ntree parameter for 100, 200, 300, 400, 425, 450, and 475 random trees.
+
+```{r, echo=FALSE}
+ntree <- c("100","200","300","400","425","450","475")
+Accuracy <- c("81.70%","81.70%","81.05%","82.35%","83.00%","83.00%","83.00%")
+ErrorRate <- c("19.96%","20.39%","20.17%","19.75%","19.52%","19.96%","19.74%")
+Kappa <- c("0.533","0.533","0.513","0.547","0.566","0.566","0.566")
+Sensitivity <- c("0.542","0.542","0.521","0.542","0.563","0.563","0.563")
+tableModel <- data.frame(ntree,Accuracy,ErrorRate,Kappa,Sensitivity)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+The table summarizes the values derived from running Model 2. Based on this exercise, we determined that the optimal Model 2 would be one with ntree = 425 because the combination of indices Accuracy, Error Rate, Kappa, and Sensitivity. ntree = 425 has the highest Accuracy, lowest Error rate, highest Kappa, and highest Sensitivity if you take all indices together. Moreover, the Optimal Model 2 with ntree = 425 is slightly better than Model 1 in all indices with the exception of Error Rate.
+
+```{r}
+set.seed(121)
+ntreecand = 425
+m2 <- randomForest(Loan_Status ~ ., data = loans_train, ntree = ntreecand)
+print(m2)
+plot(m2)
+```
+
+## (Q3c) Random Forest - Model based on Optimal Model 2 by Tuning Number of Variables (Model 3) {.tabset .tabset-fade .tabset-pills}
+
+
+#### Execution of Random Forest
+
+Model 2 with ntree = 425 may be the optimal solution up to this point. However, we wanted to investigate further if the number of variables (mtry) will help increase the Accuracy of the model. In the next execution of Random Forest, we try to see if when can reduce the error rate while increasing Accuracy by manipulating the number of variables used. Other indices that we used to determine what could be the optimal model for this exercise are Accuracy, Error Rate, Kappa, and Sensitivity. We ran Model 3 multiple times using mtry parameter for 2, 3, 4, 5, 6, and 7 variables.
+
+```{r, echo=FALSE}
+mtry <- c("2","3","4","5","6","7")
+Accuracy <- c("80.39%","83.00%","80.39%","81.05%","80.39%","79.74%")
+ErrorRate <- c("19.09%","19.52%","19.96%","19.96%","19.74%","19.96%")
+Kappa <- c("0.487","0.566","0.512","0.511","0.525","0.515")
+Sensitivity <- c("0.479","0.563","0.563","0.563","0.563","0.563")
+tableModel <- data.frame(mtry,Accuracy,ErrorRate,Kappa,Sensitivity)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+The table summarizes the values derived from running Model 3. Based on this exercise, we determined that the optimal Model 3 would be one with mtry = 3 because the combination of indices Accuracy, Error Rate, Kappa, and Sensitivity. mtry = 3 has the highest Accuracy, lowest Error rate, highest Kappa, and highest Sensitivity if you take all indices together. Moreover, the Optimal Model 3 with mtry = 3 is slightly better than Model 1 in all indices with the exception of Error Rate. Coincidentally, the default mtry for Model 2 is 3: the same as the optimal version of Model 3.
+
+```{r}
+set.seed(121)
+mtrycand = 3
+m3 <- randomForest(Loan_Status ~ ., data = loans_train, ntree = ntreecand, mtry = mtrycand)
+print(m3)
+plot(m3)
+```
+
+
+## (Q3d) Random Forest - Model Comparison {.tabset .tabset-fade .tabset-pills}
+
+In the final chore for this exercise, we made predictions on all three generated random forest models and developed the confusion matrix for each. We extracted important values from these models and compared and discussed them.
+
+#### Model 1
+
+```{r}
+prediction1 <- predict(m1,newdata = loans_test)
+prediction1.cm <- confusionMatrix(prediction1, loans_test$Loan_Status) 
+prediction1.cm
+```
+
+#### Model 2
+
+```{r}
+prediction2 <- predict(m2,newdata = loans_test)
+prediction2.cm <- confusionMatrix(prediction2, loans_test$Loan_Status) 
+prediction2.cm
+```
+
+#### Model 3
+
+```{r}
+prediction3 <- predict(m3,newdata = loans_test)
+prediction3.cm <- confusionMatrix(prediction3, loans_test$Loan_Status) 
+prediction3.cm
+```
+
+
+#### Final Comparison
+
+- Random Forest Model 2 has the highest accuracy at 83.00% and F1-Score at 88.5%. Despite the high error rate indicated earlier, F1-Score and Accuracy seemed to indicate that this Random Forest is an optimal model.
+
+- By visual inspection of the confusion matrices, the p-value of Random Forest Model is signficantly less than 0.05 at 4.049e-05. Model 1's p-value at 0.0002 indicating that there is sufficient evidence that it is a viable model, but Model 2's p-value is significantly less than that of Model 2. Model 3's p-value is the same as that of Model 2 because both models have been found out to be the same with mtry = 3 and ntree = 425. The very low p-value indicates that their is sufficient evidence that Random Forest Model 2 is a viable model for further consideration.
+
+- Model 2 (**m2**) is the optimal Random Forest model in this exercise based on its favorable Accuracy, Kappa, F1-Score, and Sensitivity.
+
+```{r}
+# Model 1 Values
+prediction1.accuracy <- prediction1.cm$overall['Accuracy']
+prediction1.kappa <- prediction1.cm$overall['Kappa']
+prediction1.sensitivity <- prediction1.cm$byClass['Sensitivity']
+prediction1.TN <- prediction1.cm$table[1,1]
+prediction1.FP <- prediction1.cm$table[1,2]
+prediction1.FN <- prediction1.cm$table[2,1]
+prediction1.TP <- prediction1.cm$table[2,2]
+prediction1.TPR <- prediction1.TP /(prediction1.TP + prediction1.FN)
+prediction1.TNR <- prediction1.TN /(prediction1.TN + prediction1.FP)
+prediction1.FPR <- prediction1.FP /(prediction1.TN + prediction1.FP)
+prediction1.FNR <- prediction1.FN /(prediction1.TP + prediction1.FN)
+prediction1.precision <- prediction1.TP / (prediction1.TP + prediction1.FP)
+prediction1.recall <- prediction1.TP / (prediction1.TP + prediction1.FN)
+prediction1.specificity <- prediction1.TN / (prediction1.TN + prediction1.FP)
+prediction1.f1score <- 2 * ((prediction1.precision * prediction1.recall) / (prediction1.precision + prediction1.recall))
+```
+
+```{r}
+# Model 2 Values
+prediction2.accuracy <- prediction2.cm$overall['Accuracy']
+prediction2.kappa <- prediction2.cm$overall['Kappa']
+prediction2.sensitivity <- prediction2.cm$byClass['Sensitivity']
+prediction2.TN <- prediction2.cm$table[1,1]
+prediction2.FP <- prediction2.cm$table[1,2]
+prediction2.FN <- prediction2.cm$table[2,1]
+prediction2.TP <- prediction2.cm$table[2,2]
+prediction2.TPR <- prediction2.TP /(prediction2.TP + prediction2.FN)
+prediction2.TNR <- prediction2.TN /(prediction2.TN + prediction2.FP)
+prediction2.FPR <- prediction2.FP /(prediction2.TN + prediction2.FP)
+prediction2.FNR <- prediction2.FN /(prediction2.TP + prediction2.FN)
+prediction2.precision <- prediction2.TP / (prediction2.TP + prediction2.FP)
+prediction2.recall <- prediction2.TP / (prediction2.TP + prediction2.FN)
+prediction2.specificity <- prediction2.TN / (prediction2.TN + prediction2.FP)
+prediction2.f1score <- 2 * ((prediction2.precision * prediction2.recall) / (prediction2.precision + prediction2.recall))
+```
+
+```{r}
+# Model 3 Values
+prediction3.accuracy <- prediction3.cm$overall['Accuracy']
+prediction3.kappa <- prediction3.cm$overall['Kappa']
+prediction3.sensitivity <- prediction3.cm$byClass['Sensitivity']
+prediction3.TN <- prediction3.cm$table[1,1]
+prediction3.FP <- prediction3.cm$table[1,2]
+prediction3.FN <- prediction3.cm$table[2,1]
+prediction3.TP <- prediction3.cm$table[2,2]
+prediction3.TPR <- prediction3.TP /(prediction3.TP + prediction3.FN)
+prediction3.TNR <- prediction3.TN /(prediction3.TN + prediction3.FP)
+prediction3.FPR <- prediction3.FP /(prediction3.TN + prediction3.FP)
+prediction3.FNR <- prediction3.FN /(prediction3.TP + prediction3.FN)
+prediction3.precision <- prediction3.TP / (prediction3.TP + prediction3.FP)
+prediction3.recall <- prediction3.TP / (prediction3.TP + prediction3.FN)
+prediction3.specificity <- prediction3.TN / (prediction3.TN + prediction3.FP)
+prediction3.f1score <- 2 * ((prediction3.precision * prediction3.recall) / (prediction3.precision + prediction3.recall))
+```
+
+```{r, echo=FALSE}
+Model <- c("Model 1","Model 2", "Model 3")
+Accuracy <- c(prediction1.accuracy, prediction2.accuracy, prediction3.accuracy)
+Kappa <- c(prediction1.kappa, prediction2.kappa, prediction3.kappa)
+Sensitivity <- c(prediction1.sensitivity, prediction2.sensitivity, prediction3.sensitivity)
+Recall <- c(prediction1.recall, prediction2.recall, prediction3.recall)
+Specificity <- c(prediction1.specificity, prediction2.specificity, prediction3.specificity)
+Precision <- c(prediction1.precision, prediction2.precision, prediction3.precision)
+F1Score <- c(prediction1.f1score, prediction2.f1score, prediction3.f1score)
+TPR <- c(prediction1.TPR, prediction2.TPR, prediction3.TPR)
+TNR <- c(prediction1.TNR, prediction2.TNR, prediction3.TNR)
+FPR <- c(prediction1.FPR, prediction2.FPR, prediction3.FPR)
+FNR <- c(prediction1.FNR, prediction2.FNR, prediction3.FNR)
+tableModel <- data.frame(Model,Accuracy,Kappa, Sensitivity, Recall,Specificity,Precision,F1Score)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+```{r eval = FALSE}
+# Save final model and predictions for Jimmy's work on #5
+readr::write_rds(m2, 'output/rf-mod2-model.Rds')
+readr::write_rds(prediction2, 'output/rf-mod2-predictions.Rds')
+```
+
+
+
+## References
+
+[RAN] Random Forests. Retrieved from website: https://uc-r.github.io/random_forests
+
+[RRA] R Random Forest Tutorial with Example. Retrieved from website: https://www.guru99.com/r-random-forest-tutorial.html
+
+

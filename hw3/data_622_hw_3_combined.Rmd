@@ -1,7 +1,7 @@
 ---
-title: "Assignment 3"
+title: "Group 4 Assignment 3"
 author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
-date: "3/21/21"
+date: "April 4, 2021"
 output:
   rmdformats::readthedown:
     self_contained: yes
@@ -10,595 +10,579 @@ output:
     gallery: no
     highlight: tango
     code_folding: hide
+editor_options: 
+  chunk_output_type: console
 ---
 
+
+
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE)
 
-if(!require(wrapr)){install.packages(wrapr); require(wrapr)}
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis'
+  # 'htmlTable', 
+  # 'gmodels', 
+  # 'car', 
+  # 'mice', 
+  # 'randomForest', 
+  # 'tidyselect', 
+  # 'skimr', 
+  # 'tidymodels', 
+  # 'broom', 
+  # 'dotwhisker', 
+  # 'vip', 
+  # 'parsnip', 
+  # 'workflows', 
+  # 'recipes', 
+  # 'tune', 
+  # 'yardstick'
+)
 
-packages <- wrapr::qc(palmerpenguins, htmlTable, gmodels, class, dplyr, corrplot, car, caret, corrplot, tidyverse, kableExtra, mice, randomForest, readxl, tidyselect, conflicted, naniar, skimr, DataExplorer, tidymodels, broom, dotwhisker, vip, rmarkdown, rsample, parsnip, workflows, recipes, tune, yardstick)
-
-pacman::p_load(char = packages)
-
-defaulttheme <- theme(panel.background = element_blank(),
-                      panel.border = element_rect(color = "black", fill = NA))
-```
-
-## (Q1a) KNN - EDA {.tabset .tabset-fade .tabset-pills}
-
-Please use K-nearestneighbor (KNN) algorithm to predict the species variable.Please be sure to walk through the steps you took. (40points)
-
-What is **kNN Algorithm?**
-
-Let’s assume we have several groups of labeled samples. The items present in the groups are homogeneous in nature. Now, suppose we have an unlabeled example which needs to be classified into one of the several labeled groups. How do you do that? Unhesitatingly, using kNN Algorithm.
-
-k nearest neighbors is a simple algorithm that stores all available cases and classifies new cases by a majority vote of its k neighbors. This algorithms segregates unlabeled data points into well defined groups.
-
-### Data Type & Format
-
-A tibble with 344 rows and 8 variables:
-species
-
-    a factor denoting penguin species (Adélie, Chinstrap and Gentoo)
-island
-
-    a factor denoting island in Palmer Archipelago, Antarctica (Biscoe, Dream or Torgersen)
-bill_length_mm
-
-    a number denoting bill length (millimeters)
-bill_depth_mm
-
-    a number denoting bill depth (millimeters)
-flipper_length_mm
-
-    an integer denoting flipper length (millimeters)
-body_mass_g
-
-    an integer denoting body mass (grams)
-sex
-
-    a factor denoting penguin sex (female, male)
-year
-
-    an integer denoting the study year (2007, 2008, or 2009)
-    
-### Summary
-
-The summary table provides some simple statistics of the penguin data.  E.g., we see a total number per species (Adelie, Chinstrap & Gentoo) as well as the number on each different island.  In addition, we that each island has a certain number of penguins present. Furthermore, we that each of the quatifiable variables (bill_length_mm, bill_depth_mm, flipper_length_mm, & body_mass_g) shows distribution of the numbers. We have a minimum, maximum, average, median, etc.  In addition, we also see a number of missing values.  Lastly, we  see number of species by sex distribution and the range of years in the which the data was obtained.
-
-```{r}
-summary(penguins)
-```
-
-### Missing data
-
-Mitigate any missing data
-
-We have opted to remove missing data observations versus impute the missing values.  For numerical data, the mean would not change if we imputed, but, variance decreases and changes.(1) The 4 variables (bill_length_mm  bill_depth_mm   flipper_length_mm  body_mass_g) all have the same number (2) of missing data.  By removing these observations, we are treating all of these variables in the same manner (equally), which does not introduce bias.  Lastly, variable sex has 11 missing data points.  This was removed because the number of observations between female and male are roughly the same number.  If we attempted to artifically account for the missing data points, we could be adding bias.  Given, it is a small dataset, most of the data points are intact and we don't believe that the model will lose power during modeling.  If we have added values artifically, we would add bias because it is a small dataset and this would lead to a magnified variance.  We opted to keep the data integrity pure as possible. (6)
-
-```{r}
-penguins_df = na.omit(penguins)
-summary(penguins_df)
-```
-
-### Correlation 
-
-Correlation between numerical variables
-
-**Note**: We are using the following definitions for variable correlation. For this test the correlation threshold is set at 0.5. 
-
-Correlation coefficients whose magnitude are between 0.9 and 1.0 indicate variables which can be considered very highly correlated. Correlation coefficients whose magnitude are between 0.7 and 0.9 indicate variables which can be considered highly correlated. Correlation coefficients whose magnitude are between 0.5 and 0.7 indicate variables which can be considered moderately correlated. Correlation coefficients whose magnitude are between 0.3 and 0.5 indicate variables which have a low correlation. Correlation coefficients whose magnitude are less than 0.3 have little if any (linear) correlation. (2)
-
-```{r fig.height = 9, fig.width = 12, fig.align = "center"}
-# Select numericals
-penNumeric <- penguins_df %>% select(-species, -sex, -island)
-# Cor-relation between numerics
-corrplot(cor(penNumeric), type = 'lower', diag = FALSE)
-
-result1 <- cor(subset(penguins_df, select = c("bill_length_mm", "bill_depth_mm", "body_mass_g", "year")))
-result1
-
-
-corr_check_with_variables <- function(data, t){
-  m <- cor(data)
-  
-
-  for (i in 1:nrow(m)){
-    c <-  which((abs(m[i,i:ncol(m)]) > t) & (m[i,i:ncol(m)] != 1))
-  
-    if(length(c)> 0){
-      lapply(c,FUN =  function(x) (cat(paste(colnames(data)[i], "with",colnames(data)[x]), "\n")))
-     
-    }
-  }
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
 }
-#(3)
 
-corr_check_with_variables(penNumeric, 0.5)
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
 
 ```
 
-In this step, we decided to remove Year predictor from classification.  This was done because of the low contribution of Year with respect to other variables contribution as a strong or moderate predictor.  According to the correlation plot and table, we see that bill_length_mm and body_mass_g has a moderate correlation of 0.589.  Body mass has a positive impact on length of bill.  Conversely, bill_depth_mm is negatively related to bill_length_mm and body_mass_g.  Furthermore, we see that (bill_length_mm with flipper_length_mm), (bill_length_mm with body_mass_g), (bill_depth_mm with bill_depth_mm), (flipper_length_mm with bill_depth_mm) have a moderate correlation.  We will use all of the numeric variables with the exception of Year.  Year does not provide the same level of significance as bill length, depth and body mass.
 
-## (Q1b) KNN - Data Prep  {.tabset .tabset-fade .tabset-pills}
+## (Q1) k-Nearest Neighbors {.tabset .tabset-fade .tabset-pills}
 
-### Encode Categorical Variables
 
-KNN works well when all perdictor data has been converted to numerics with the exception of the target variable (species).  
+> [Using] the Penguin dataset . . . please use [the] K-nearest neighbors algorithm to predict the species variable.
+
+The **KNN Algorithm** is a simple classification algorithm.
+It stores the training data and classifies
+new cases by a majority vote of the case's k-nearest neighbors.
+
+The algorithm is sensitive to the units of the chosen predictor variables.
+It is important that we transform all the values to a common scale.
+A frequently used practice is to normalize the data to the interval [0, 1].
+
+KNN works well when all predictor data has been converted to 
+numerics with the exception of the target variable `species`.
+
+*A note on data preparation:* this is the third time we've worked
+with the `palmerpenguins` data.  We've repeated some data preparation
+and EDA in the appendix.  The data prep we do here are items 
+**specific to the k-NN algorithm**.
+
+
+
 
 ```{r}
-org_penguins_df <- penguins_df
-penguins_df <- penguins_df %>% select(-year) %>%
-mutate_if(is.factor, as.numeric)
-penguins_df$species <- org_penguins_df$species 
-print(penguins_df)
-```
+penguins_na_omit <- readr::read_rds('data/penguins_na_omit.Rds')
 
-### Normalize function
-
-This feature is of paramount importance since the scale used for the values for each variable might be different. The best practice is to normalize the data and transform all the values to a common scale.  The scale is set between 0 and 1.
-
-```{r}
 normalize <- function(x) {
-return ((x - min(x)) / (max(x) - min(x))) }
+  (x - min(x)) / (max(x) - min(x))
+}
 
-penguins_df_norm <- as.data.frame(lapply(penguins_df[3:6], normalize))
+penguins_df_norm <- penguins_na_omit %>% 
+  select(-year) %>% 
+  mutate_if(is.factor, as.integer) %>% 
+  mutate_if(is.numeric, normalize) %>% 
+  mutate(species = penguins_na_omit$species)
 
-#Add back other variables 
-penguins_df_norm$sex <- penguins_df$sex
-penguins_df_norm$island <- penguins_df$island
-penguins_df_norm$species <- penguins_df$species
-
-head(penguins_df_norm)
+penguins_df_norm %>% head
 ```
 
-This is the final table that will be used for classification.  All of the data cleaning and manipulation has been completed.
+
+
+
+
 
 ### Create Training and Test sets
 
 The first is used to train the system, while the second is used to evaluate the learned or trained system. In practice, the division of your data set into a test and a training sets is disjoint: the most common splitting choice is to take 2/3 of your original data set as the training set, while the 1/3 that remains will compose the test set.
 
-This step created a training and test set.  The first 6 columns of the data are included in the training and test set because these are our predictors.  The last column is the target that we are predicting.
 
 ```{r}
 # Create sample data for testing and training.
 set.seed(1234)
 ind <- sample(2, nrow(penguins_df_norm), replace=TRUE, prob=c(0.67, 0.33))
 
-# Compose training set
-penguin.train <- penguins_df_norm[ind==1, 1:6]
+# Training and test sets
+penguin.train <- penguins_df_norm %>% filter(ind == 1) %>% select(-species)
+penguin.test  <- penguins_df_norm %>% filter(ind == 2) %>% select(-species)
 
-# Inspect training set
-head(penguin.train)
-
-# Compose test set
-penguin.test <- penguins_df_norm[ind==2, 1:6]
-
-# Inspect test set
-head(penguin.test)
-
-# Compose `penguin` training labels
-penguin.trainLabels <- penguins_df_norm[ind==1,7]
-
-# Inspect result
-print(penguin.trainLabels)
-
-# Compose `penguin` test labels
-penguin.testLabels <- penguins_df_norm[ind==2, 7]
-
-# Inspect result
-print(penguin.testLabels)
+# Training and test labels
+penguin.trainLabels <- penguins_df_norm$species[ind == 1]
+penguin.testLabels <- penguins_df_norm$species[ind == 2]
 ```
 
-We need to store the class labels in factor vectors and divide them over the training and test sets.  This is what was acomplished in this step.
 
-## (Q1c) KNN - Build Classifier {.tabset .tabset-fade .tabset-pills}
+
+
 
 ### Build KNN Classifier
 
-This step performs the actual classification.  Note: the k parameter is often an odd number to avoid ties in the voting scores. Additionally, k is usually set to the square root of the total number of observations in the dataset. 
+This step performs the actual classification.
+Note: the k parameter is often an odd number to avoid ties in the voting scores.
+A good starting point for k is the square root of the total number of observations.
 
 ```{r}
-# Build the model
-penguin_pred <- knn(train = penguin.train, test = penguin.test, cl = penguin.trainLabels, k=19)
+penguin_pred <- knn(
+  k = 19,
+  train = penguin.train, 
+  test = penguin.test, 
+  cl = penguin.trainLabels)
 
-# Inspect `penguin_pred`
-penguin_pred
+caret::confusionMatrix(
+  penguin_pred, 
+  penguin.testLabels)
 ```
 
-### Evaluation of Model
+With k = 19 we have zero misclassifications!
+
+
+
+What are the accuracy measures for other values of k?
+
 ```{r}
-# Put `penguin.testLabels` in a data frame
-penguinTestLabels <- data.frame(penguin.testLabels)
+k_search <- function(k) {
+  penguin_pred <- knn(
+    k = k,
+    train = penguin.train, 
+    test = penguin.test, 
+    cl = penguin.trainLabels)
 
-# Merge `penguin_pred` and `penguin.testLabels` 
-merge <- data.frame(penguin_pred, penguin.testLabels)
+  cm <- caret::confusionMatrix(
+    penguin_pred, 
+    penguin.testLabels)
+  
+  data.frame(
+    k = k, 
+    Adelie = cm$byClass[1, 11],
+    Chinstrap = cm$byClass[2, 11],
+    Gentoo = cm$byClass[3, 11] )
+}
 
-# Specify column names for `merge`
-names(merge) <- c("Predicted Species", "Observed Species")
+res <- NULL
+for (i in seq(1, 21, 2)) {
+  res_i <- k_search(i)
+  if (is.null(res))
+    res <- res_i
+  else
+    res <- rbind(res, res_i)
+}
 
-# Inspect `merge` 
-paged_table(merge)
-
-CrossTable(x = penguin.testLabels, y = penguin_pred, prop.chisq=FALSE)
-
-xtab <- caret::confusionMatrix(penguin_pred, penguin.testLabels)
-print(xtab)
+print(res)
 ```
 
-This step assembles the output data to be used in a contingency table.  From this table, you can derive the number of correct and incorrect predictions. In this instance, we see that KNN classifed most/all of the test data correctly.  This can be verified by the first table where the initial vertical column named (penguin.testLabels) contains test labels and the remainder columns are the predicted values.  For Adelie, we see that it correclty predicted Adelie out of 48 observations.  The same goes for Chinstrap (22 observations) and Gentoo (34 observations).  There were not any misclassifications.  The is verified using the second table which is same the first table, but with summarized information.  In the second table, we see that Adelie was predicted correctly along with Chinstrap and Gentoo.  In addition, we see that accuracy for all three species is nearly at 100%.          
+We see that k = 17 is the first value of k for which we have perfect accuracy.
+But, the accuracy is extremely good for all values of k.
 
-In addition, we executed KNN changing "k" parameter between each run by incrementing it by 1 each time, and the runs between 1 - 15 were at 99% accuracy, the accuracy goes to 100% for values between 16 - 19.  The last run at 20, goes back to 99% accuracy.   
 
-## (Q1d) KNN - Appendix {.tabset .tabset-fade .tabset-pills}
 
-### KNN Test Runs 
 
-With k parameter adjusted with each run; total of 20 runs
 
-K = 1  
-               Accuracy : 0.99            
 
 
-##############################################################################################
+### What if we do not know `island`?
 
-K = 2
-             Accuracy : 0.98            
+From previous homework assignments, we found that `island`
+was an extremely helpful variable because not all species
+are found on each island.  If we wanted to build a model
+without `island` (for individuals we might find at sea, for example),
+how well would it perform?
 
+```{r}
+cols <- c(
+  "bill_length_mm", "bill_depth_mm", 
+  "flipper_length_mm", "body_mass_g", "sex")
 
-##############################################################################################
+k_search <- function(k) {
+  penguin_pred <- knn(
+    k = k,
+    train = penguin.train[, cols], 
+    test = penguin.test[, cols], 
+    cl = penguin.trainLabels)
 
-K = 3
-              Accuracy : 0.99            
+  cm <- caret::confusionMatrix(
+    penguin_pred, 
+    penguin.testLabels)
+  
+  data.frame(
+    k = k, 
+    Adelie = cm$byClass[1, 11],
+    Chinstrap = cm$byClass[2, 11],
+    Gentoo = cm$byClass[3, 11] )
+}
 
+res <- NULL
+for (i in seq(1, 21, 2)) {
+  res_i <- k_search(i)
+  if (is.null(res))
+    res <- res_i
+  else
+    res <- rbind(res, res_i)
+}
 
-##############################################################################################
+print(res)
+```
 
-K = 4
-              Accuracy : 0.99            
+At k = 3 we get a pretty good model without using `island`.
+However, we do not see perfect classification as we do when
+the variable is included.
 
 
-##############################################################################################
 
-K = 5
-              Accuracy : 0.99            
 
 
-##############################################################################################
 
-K = 6
-              Accuracy : 0.99
 
 
-##############################################################################################
 
-K = 7
-                Accuracy : 0.99   
 
 
-##############################################################################################
 
-K = 8
-                Accuracy : 0.99  
 
 
-##############################################################################################
 
-K = 9
-                Accuracy : 0.99    
+## Loan approval dataset EDA and cleaning  {.tabset .tabset-fade .tabset-pills}
 
+We prepare a dataset here for use in questions 2, 3 and 4.
 
-##############################################################################################
 
-K = 10
-                Accuracy : 0.99  
 
 
-##############################################################################################
-
-K = 11
-               Accuracy : 0.99   
-
-
-##############################################################################################
-
-K = 12
-               Accuracy : 0.99 
-
-
-##############################################################################################
-
-K = 13
-                Accuracy : 0.99  
-
-
-##############################################################################################
-
-K = 14
-                Accuracy : 0.99 
-
-
-##############################################################################################
-
-K = 15
-                Accuracy : 0.99 
-
-
-##############################################################################################
-
-K = 16
-                Accuracy : 1
-
-
-##############################################################################################
-
-K = 17
-                Accuracy : 1 
-
-
-##############################################################################################
-
-K = 18
-                Accuracy : 1  
-
-
-##############################################################################################
-
-K = 19
-                Accuracy : 1
-
-
-##############################################################################################
-
-K = 20
-                Accuracy : 0.99 
-
-
-##############################################################################################
-
-### References
-
-1. https://www.kdnuggets.com/2017/09/missing-data-imputation-using-r.html
-
-2. https://www.researchgate.net/post/What-are-the-correlation-values-with-respect-to-low-moderate-high-correlation-specially-in-medical-research#:~:text=Correlation%20coefficients%20whose%20magnitude%20are,can%20be%20considered%20highly%20correlated.
-
-3. https://rpubs.com/sediaz/Correlations
-
-4. https://towardsdatascience.com/k-nearest-neighbors-algorithm-with-examples-in-r-simply-explained-knn-1f2c88da405c
-
-5. https://www.datacamp.com/community/tutorials/machine-learning-in-r#normalization
-
-6. http://r-statistics.co/Missing-Value-Treatment-With-R.html
-
-## (Q2a) Decision Tree - EDA {.tabset .tabset-fade .tabset-pills}
-
-### Data Exploration
+### Basic summary
 
 Before conducting any modeling, we will explore our dataset. Below describes the `Loan_approval` dataset where we have 614 observations with 13 features used to describe these observations. eight of these variables are factors while the other five are numeric.
 
 ```{r}
 url <- "https://raw.githubusercontent.com/adamleerich/data622-group4/main/hw3/Loan_approval.csv"
 
-loandata<-read_csv(url)
+# We know Loan_ID is not useful and we remove it now
+loandata <- read_csv(url) %>% 
+  select(-Loan_ID)
 
-summary(loandata) %>%kable() %>%   
+summary(loandata) %>%
+  kable() %>%   
   kable_styling(
       full_width = F, position="center", bootstrap_options = c("hover")) %>% 
   scroll_box()
 ```
 
+
+
+
 ### Missing data
 
-We can visualize the amount of missing data that is observed in our dataset with the `vis_miss` function from the `naniar` package. Majority of the data is complete and approximate 1.9% of the dataset is missing. There are no observations with majority of features missing, and there are no features that are abnormally sparse. A threshold of 0.5 was set for observation completion, meaning if 50% of the features measure NA for any observation, that row is removed from our dataset. For this case, no rows in the dataset triggered this threshold.
-The few pieces of missing information will need to be handled with imputation, removal. Of the categorical variables, this includes, `Gender`, `Married`, `Dependents`, `Self_Employed` and `Credit_History`. of the numeric variables this includes `Loan Amount`, `Loan_Amount_Terms`, and `Credit_History`. Imputation methods explored include, mean, mode, bagimpute, knn, and median.
+We can visualize the amount of missing data that is observed in our dataset
+with the `vis_miss` function from the `naniar` package.
+Majority of the data is complete and approximate 1.9% of the dataset is missing.
+There are no observations with majority of features missing,
+and there are no features that are abnormally sparse.
+
+A threshold of 0.5 was set for observation completion,
+meaning if 50% of the features measure `NA` for any observation,
+we would remove that row from our dataset.
+No rows in the dataset triggered this threshold.
+
+The few pieces of missing information will need to be handled with imputation or removal.
+Of the categorical variables, this includes 
+`Gender`, `Married`, `Dependents`, `Self_Employed` and `Credit_History`.
+Of the numeric variables this includes 
+`Loan Amount`, `Loan_Amount_Terms`, and `Credit_History`.
+We explored several imputation methods: mean, mode, bagimpute, KNN, and median.
+We decided to use 360 for missing loan terms, mean for other numeric variables,
+and mode for categorical.
+
 
 ```{r, fig.height = 9, fig.width = 12, fig.align = "center"}
-
 naniar::vis_miss(loandata)
 ```
 
-```{r}
+```{r, eval=FALSE}
+# This code counts the number of observations with majority NAs
+limitmissing <- .5 * ncol(loandata)
 
-limitmissing <- .5*ncol(loandata)
+retain <- apply(
+  loandata, 
+  MARGIN = 1, 
+  function(y) sum(is.na(y)) < limitmissing)
 
-retain<-apply(loandata, MARGIN= 1, function(y) sum(length(which(is.na(y)))))<limitmissing
-
-Dataset<-loandata[retain,]
-
+sum(!retain)
 ```
+
+
+
 
 ### Frequency
 
-Simple barplot is showing the frequency of all categorical variables in the dataset, as well as a histogram to show distribution of numeric features in the dataset. `Gender` comprised primarily of `Male` and this is a feature that is decidely removed from our dataset to avoid making loan approval predictions based on any gender biases. on the `Loan_Amount_Term`, most individuals go with the 30 year mortgage, while few select terms below or above that. Many of the distributions skew right, however no transformations to normalize this dataset are necessary for decision tree classification-based models.
+A simple barplot shows the frequency
+of all categorical variables in the dataset.
+We also include histograms to show distribution
+of numeric features in the dataset.
+We remove `Gender`, which is skewed to `Male`,
+to avoid making loan approval predictions based on any gender biases.
 
-The bar chart also depicts that there is class imbalance of the our response variable `Loan_Status`. Knowing this, we may need to perform some over/undersampling techniques in order to obtain better training sets. The table below shows this as 69% approved `Y` and 31% denied `N`. With this, we know that at the very least, guessing the majority class will provide a 69% accuracy and our models need to surpass this. Kappa is a metric used to measure accuracy that is normalized based on the class distribution and will be used to compare model performance. For Kappa, values of 0-0.20 as slight, 0.21-0.40 as fair, 0.41-0.60 as moderate, 0.61-0.80 as substantial, and 0.81-1 as almost perfect.
+It appears the vast majority of this dataset is for 30-year mortgages.
+Many of the distributions skew right, however no transformations
+to normalize this dataset are necessary for tree-based classification models.
+
+The bar chart also depicts that there is class imbalance
+in the response variable `Loan_Status`.
+Knowing this, we may need to perform some over- or under-sampling
+to obtain better training sets.
+The table below shows this as 69% approved `Y` and 31% denied `N`.
+Guessing the majority class will provide a 69% accuracy and our models need to surpass this.
+
+
 
 ```{r, fig.height = 9, fig.width = 12, fig.align = "center"}
-unique(loandata$Loan_Amount_Term)
+table(loandata$Loan_Amount_Term, useNA = 'always')
 
 plot_bar(loandata, theme_config = defaulttheme, ncol = 3)
 
-plot_histogram(loandata,theme_config = defaulttheme, ncol = 2)
-
-prop.table(table(loandata$Loan_Status)) %>% as.data.frame() %>% 
-    mutate(Freq = paste0(round(Freq * 100), "%")) %>% 
-    rename( "Class" = Var1, "Proportion" = "Freq") %>% 
-    mutate(Count =table(loandata$Loan_Status)) %>%kable() %>%   
-    kable_styling(
-        full_width = F, position="center", bootstrap_options = c("hover"))
+plot_histogram(loandata, theme_config = defaulttheme, ncol = 2)
 ```
-### Visualization by predicted var
 
-Next we look at the same categorical and numeric distributions, however we separate these by our predictor variable to assess any interesting or unusual patterns. We notice that the proportion of Y/N are distributed in our categorical variables such that there is no feature that decidingly determines our prediction (which would provide less incentive to build models). However, `Credit_Score` seems to be a major determing factor.
+
+
+
+
+### Visualization by potential predictor variables
+
+Next we look at the same categorical and numeric distributions,
+however we separate these by our predictor variable
+to assess any interesting or unusual patterns.
+We notice that the proportion of Y/N are distributed in our categorical variables
+such that there is no feature that decidingly determines our prediction
+(which would provide less incentive to build models).
+However, `Credit_Score` seems to be a major determing factor.
 
 ```{r}
 plot_bar(loandata, by = "Loan_Status")
-plot_boxplot(loandata, by = "Loan_Status", theme_config = defaulttheme, ncol =2 )
-
+plot_boxplot(
+  loandata, by = "Loan_Status", theme_config = defaulttheme, ncol = 2)
 ```
 
-Tree-based models are not susceptible to the negative impacts of colinearity, however we can still check for if there is any capacity for feature reduction by looking at our pairwise comparison of numeric features. if there are features that describe the data too similarly, they may not provide much additional benefit in the model. For this particular dataset, we do not observe heavy multicolinearity.
+Tree-based models are not susceptible to the negative impacts of collinearity,
+however we can still check.  Highly correlated variables are candidates for removal
+to achieve a more parsimonious model.
+We do not observe multicollinearity in this dataset.
 
 ```{r}
-
-plot_correlation(loandata,type = c("continuous"),cor_args = list(use = "pairwise.complete.obs"))
-
+loandata %>% 
+  select_if(is.numeric) %>% 
+  na.omit() %>% 
+  cor(.) %>% 
+  corrplot(., type = 'lower', diag = FALSE)
 ```
 
 
+
+
+
+### Data preparation
+
+
+* Impute missing values
+    + `Loan_Amount_Term` with value 360
+    + Categorical variables and `Credit_History` using `mode`
+    + Remaining numeric variables with `mean`
+* Remove `Loan_ID` and `Gender`
+* Create a variable for `Total_Income` and remove `ApplicantIncome` and `CoapplicantIncome`
+* Add `IncomeLoanRatio`
+* Replace factor variables with dummy variables for *all levels* including the base level
+* Split the data into a training and test set
+* Save the prepared data for questions 2, 3, and 4
+
+
 ```{r}
+# Helper functions
+mode <- function(x, ...) {
+  tx <- table(x)
+  which(tx == max(tx)) %>% sort %>% `[`(., 1) %>% names
+}
+impute <- function(x, fun) {
+  fval <- fun(x, na.rm = TRUE)
+  y <- ifelse(is.na(x), fval, x)
+  return(y)
+}
 
-parsnip::show_engines("decision_tree")
+# Prep statements
+loans <- loandata %>% 
+  select(-Gender) %>% 
+  mutate(
+    Loan_Amount_Term   = ifelse(is.na(Loan_Amount_Term), 360, Loan_Amount_Term),
+    Married            = impute(Married, mode),
+    Dependents         = impute(Dependents, mode),
+    Education          = impute(Education, mode),
+    Self_Employed      = impute(Self_Employed, mode),
+    ApplicantIncome    = impute(ApplicantIncome, mean),
+    CoapplicantIncome  = impute(CoapplicantIncome, mean),
+    LoanAmount         = impute(LoanAmount, mean),
+    Credit_History     = impute(Credit_History, mode),
+    Property_Area      = impute(Property_Area, mode),
+    Loan_Status        = impute(Loan_Status, mode)  ) %>% 
+  mutate(
+    Total_Income = ApplicantIncome + CoapplicantIncome) %>% 
+  select(-ApplicantIncome, -CoapplicantIncome) %>% 
+  mutate(IncomeLoanRatio = Total_Income / LoanAmount) %>% 
+  mutate_if(is.character, factor)
 
-```
+# Create dummyVars, *including* base levels!
+dv <- dummyVars(~ ., data = loans, fullRank = FALSE)
+loans_dv <- predict(dv, loans) %>% as.data.frame
 
-## (Q2b) Decision Tree - Model Process {.tabset .tabset-fade .tabset-pills}
-
-### **Preprocessing**
-
-Several models will be tested across a 10-fold bootstrapped validation training set that will allow for robust predictions on the training set that are less susceptible to overfitting. The decision tree model will be tested using the `rpart` inside of the `tidymodels` framework. Various transformations, imputations and steps are applied in each model to compare performance and is described in each model section. After testing various model setups along the validation sets, the best model will be tuned via the appropriate decision tree specifications and final predictions and accuracies will be shown on the training and testing sets which are split 75/25.
-
-
-```{r}
-
-loandata<-
-  loandata %>% mutate_if(is.character,as.factor)
-
+# Split data: L is a binary vector
+# so one can split loans or loans_dv the same way
 set.seed(3)
-Datasplit<- rsample::initial_split(loandata, prop = .75, strata = Loan_Status)
-Datatrain<-training(Datasplit)
-datatest<-testing(Datasplit)
-datacv<- vfold_cv(Datatrain, v = 10, strata = Loan_Status)
+S <- initial_split(loans, prop = .75, strata = Loan_Status)
+L <- (1:nrow(loans)) %in% S$in_id
 
-tree_engine<-
+loans_train <- loans[L, ]
+loans_test <- loans[!L, ]
+loans_dv_train <- loans_dv[L, ]
+loans_dv_test <- loans_dv[!L, ]
+
+# loans_train %>% str
+# loans_test %>% str
+# loans_dv_train %>% str
+# loans_dv_test %>% str
+
+# Save Rds files for later use
+# Rds files are an easy way to save individual R objects
+# They are preferred over RData files
+write_rds(loans_train, 'data/loans_train.Rds')
+write_rds(loans_test, 'data/loans_test.Rds')
+write_rds(loans_dv_train, 'data/loans_dv_train.Rds')
+write_rds(loans_dv_test, 'data/loans_dv_test.Rds')
+```
+
+
+
+
+
+
+
+
+## (Q2) Decision Tree {.tabset .tabset-fade .tabset-pills}
+
+Several models will be tested across a 10-fold bootstrapped validation training set that will allow for robust predictions on the training set that are less susceptible to overfitting. The decision tree model will be tested using the `rpart` inside of the `tidymodels` framework. After testing various model setups along the validation sets, the best model will be tuned via the appropriate decision tree specifications and final predictions and accuracy will be shown on the training and testing sets which are split 75/25.
+
+
+**Note on `tidymodels`: the `tidymodels` framework is a wrapper
+around the various packages that one can use for the same
+modeling methods.  The specific functions of this package may
+be new to the reader, however we hope that the intent of the 
+following code is easy to follow even for the reader unfamiliar
+with `tidymodels`.  We do not use the `tidymodels` framework
+for all questions in this homework.
+
+```{r}
+Datatrain <- read_rds('data/loans_dv_train.Rds') %>% 
+  mutate(Loan_Status = ifelse(Loan_Status.Y, "Y", "N")) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+
+datacv <- vfold_cv(Datatrain, v = 10, strata = Loan_Status)
+
+tree_engine <-
     decision_tree(mode = "classification") %>% 
     parsnip::set_engine(engine = "rpart")
 
-dt_wf<-
+dt_wf <-
     workflow() %>% 
     workflows::add_model(tree_engine)
-
 ```
 
-### 1st Model
 
-Workflow 1 - **Baseline** (basic imputation and feature removal)
+### Candidate models
 
-For the initial model, start by standard steps that are necessary to make predictions including getting rid of NAs. in this case the following steps are made on this model:
+#### 1st Model: **Baseline**
 
-- Removal of Loan_ID: unique identifier for each loan with no valuable information
-- Removal of Gender: avoids gender bias
-- Imputation of all numeric variables with median
-- Imputation of all factor variables with mode
-- Dummifying all factor variables into 0/1s depending on number of features
+Kappa is a metric used to measure accuracy that is normalized
+based on the class distribution and will be used to compare model performance.
+For Kappa, values of 0-0.20 as slight, 0.21-0.40 as fair, 0.41-0.60 as moderate, 0.61-0.80 as substantial, and 0.81-1 as almost perfect.
 
-The results this model tested among 10-folds of a training set is 80% accuracy and 48% KAP. Other performance metrics are presented below
+The results this model tested among 10-folds of a training set is 80% accuracy and 48% KAP. Other performance metrics are presented below.
 
 ```{r}
-
 #Baseline Model
-dt_recipe1<-
-  recipe(Loan_Status ~ ., data = Datatrain) %>% 
-  step_rm(Loan_ID, Gender) %>% 
-  step_medianimpute(all_numeric()) %>% 
-  step_modeimpute(all_nominal(), -all_outcomes()) %>% 
-  step_dummy(all_nominal(), -all_outcomes())
+dt_recipe1 <-
+  recipe(Loan_Status ~ ., data = Datatrain)
 
 dt_recipe1 %>% prep()
+
 dt_wf1<-
  dt_wf %>% 
   add_recipe(dt_recipe1)
 
-wf1_results<-
-dt_wf1 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
+wf1_results <- dt_wf1 %>% 
+  fit_resamples(
+    resamples= datacv, 
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
 
 
 wf1_results %>% collect_metrics(summarize = T)
 
-All_metrics<-data.frame()
-wf_res_function<-
-  function(wf_results, modelname){
-    #this function calls returns the ROC_AUC, accuracy, and kap of a cross validated model result
+All_metrics <- data.frame()
+
+wf_res_function <-
+  function(wf_results, modelname) {
+    # this function returns 
+    # ROC_AUC, accuracy, and KAPPA of a cross validated model result
     
     All_metrics %>% bind_rows(
       collect_metrics(wf_results, summarize = T) %>%
       mutate(model = modelname))
   }
 
-All_metrics<-
-wf_res_function(wf1_results,"Model 1")
-
-
-
+All_metrics <- wf_res_function(wf1_results, "Model 1")
 ```
 
-### 2nd Model
-
-Workflow 2 - **Imputation**
+#### 2nd Model: **Imputation** testing
 
 For this model, all steps that were applied to model 1 are also applied to model 2 except the imputation of the factor variables are done with k-nearest neighbors instead of mode imputations. The following describes the adjustments
 
-- All steps from Model 1 except mode imputation
-- Imputation of all factor variables with KNN
+No change in the Accuracy or KAP was observed from model 1. Additionally bagimpute, removing missing data, and unknown classification were tested and performed either the same or worse than the baseline model.
 
-no change in the Accuracy or KAP was observed from model 1. Additionally bagimpute, removing missing data, and unknown classification were tested and performed either the same or worse than the baseline model.
-
-```{r}
-
-#model 2
-dt_recipe2<-
-  recipe(Loan_Status ~ ., data = Datatrain) %>% 
-  step_rm(Loan_ID, Gender) %>% 
-  step_medianimpute(all_numeric()) %>% 
-  step_knnimpute(all_nominal(), -all_outcomes()) %>% 
-  step_dummy(all_nominal(), -all_outcomes())
-
-dt_recipe2 %>% prep()
-dt_wf2<-
- dt_wf %>% 
-  add_recipe(dt_recipe2)
-
-dt_recipe2 %>% prep()
-
-wf2_results<-
-  dt_wf2 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
-
-wf2_results %>% collect_metrics(summarize = T)
+We do not include the results of this step in our report.
 
 
 
-All_metrics<-
-  wf_res_function(wf2_results,"Model 2")
 
-```
 
-### 3rd Model
+#### 3rd Model: **Undersampling**
 
-Workflow 3 - **Undersampling**
-
-All steps that were applied to model 1 are also applied to model 3 but down-sampling is added in order to test balance the majority and minority classes in our response variable. the down sampling was tested at a few ratios from 1:1 to 2. the optimal ratio is presented below at 1.8 with 35% `N` and 65% `Y`. a 4% adjustment in the class balance. the following steps were made:
-
-- All steps from Model 1 
-- Undersampling of the majority class to balance class
+All steps that were applied to model 1 are also applied to model 3 but down-sampling is added in order to test balance the majority and minority classes in our response variable. The down sampling was tested at a few ratios from 1:1 to 2. the optimal ratio is presented below at 1.8 with 35% `N` and 65% `Y` -- a 4% adjustment in the class balance. the following steps were made:
 
 This resulted in a lower accuracy and lower KAP likely because this dataset is not extensive enough to provide enough information when downsampling. Due to this, Downsampling will not be incorporated as part of the final model
 
 
 ```{r}
-
-
-#underratio 2 works
-#model 3
-dt_recipe3<-
+dt_recipe3 <-
   dt_recipe1 %>% 
-  themis::step_downsample(Loan_Status, skip = F,under_ratio =1.8)
+  themis::step_downsample(Loan_Status, skip = FALSE, under_ratio = 1.8)
 
-table((bake(dt_recipe3 %>% prep(),new_data = Datatrain))$Loan_Status)
+table((bake(dt_recipe3 %>% prep(), new_data = Datatrain))$Loan_Status)
 
 dt_wf3<-
  dt_wf %>% 
@@ -606,148 +590,59 @@ dt_wf3<-
 
 dt_recipe3 %>% prep()
 
-wf3_results<-
-  dt_wf3 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
+wf3_results <- dt_wf3 %>% 
+  fit_resamples(
+    resamples = datacv,  
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
 
 
-wf3_results %>% collect_metrics(summarize = T)
+wf3_results %>% collect_metrics(summarize = TRUE)
 
-
-All_metrics<-
-  wf_res_function(wf3_results,"Model 3")
-
+All_metrics <-
+  wf_res_function(wf3_results, "Model 3")
 ```
 
-### 4th Model
-
-Workflow 4 - **Feature Reduction and Engineering**
-
-All steps that were applied to model 1 are also applied to model 4. Additional steps were added to this model to test for feature reduction and feature engineering. `ApplicantIncome` and `CoapplicantIncome` were combined into a single variable.
-
-- All steps from Model 1 
-- Testing and removal for low variance or zero variance features
-- Feature engineering - creating interation feature for`ApplicantIncome` and `CoapplicantIncome` by summation
-
-The results of this model showed that no low-variance features exist in dataset so these steps will be removed. However, Combining income increase model KAP to 49%.
-
-```{r}
-
-#starting from baseline
-dt_recipe4<-
-  dt_recipe1 %>% 
-  step_zv(all_predictors()) %>% 
-  step_nzv(all_predictors()) %>% 
-  step_mutate(Total_Income = ApplicantIncome+CoapplicantIncome) %>% 
-  step_rm(ApplicantIncome, CoapplicantIncome)
-  
-
-dt_recipe4 %>% prep()
-
-dt_wf4<-
- dt_wf %>% 
-  add_recipe(dt_recipe4)
-
-wf4_results<-
-dt_wf4 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
 
 
-wf4_results %>% collect_metrics(summarize = T)
-
-All_metrics<-
-wf_res_function(wf4_results,"Model 4")
 
 
-```
-
-### 5th Model
-
-Workflow 5 - **Feature Reduction** Part 2
-
-All steps that were applied to model 1 are also applied to model 5. Additional steps were added to this model to test for feature reduction and feature engineering. `ApplicantIncome` and `CoapplicantIncome` were combined into a single variable. The following was made to model 5:
-
-- All steps from Model 1 
-- Feature engineering - creating interaction feature for`ApplicantIncome` and `CoapplicantIncome` by summation
-- Feature engineering - creating interaction feature for `Total_Income` and `LoanAmount` to create `IncomeLoanRatio`
-
-
-Adding the `IncomeLoanRatio` Feature increased our model KAP from 49% to 52% and our accuracy from 80% to 82% so we will retain these steps.
-
-```{r}
-
-#starting from 1, removing nzv and zv, adding income to loan
-#model 5
-dt_recipe5<-
-  dt_recipe1 %>% 
-  step_mutate(Total_Income = ApplicantIncome+CoapplicantIncome) %>% 
-  step_rm(ApplicantIncome, CoapplicantIncome) %>% 
-  step_mutate(IncomeLoanRatio = Total_Income/LoanAmount) 
-
-dt_recipe5 %>% prep()
-
-dt_wf5<-
- dt_wf %>% 
-  add_recipe(dt_recipe5)
-
-wf5_results<-
-dt_wf5 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
-
-
-wf5_results %>% collect_metrics(summarize = T)
-
-
-All_metrics<-
-wf_res_function(wf5_results,"Model 5")
-
-```
-
-### 6th Model
-
-Workflow 6 - **Discretization Testing**
+### 6th Model: **Discretization Testing**
 
 All steps that were applied to model 5 are also applied to model 6. Additionally, Data discretization for numeric features were tested. Binning features sometimes allows groupings to better predict our response variable. Binning was tested along various features and various bins, the feature that improved model accuracy most when binning was the engineered feature `Total_Income`. The following steps were done to model 6:
 
-- All steps from Model 5
-- Discretization of `Total_Income` into 6 bins
-
 ```{r}
-
-#starting from 5, adding to this by discretizing the total income variable
-#model 5
-dt_recipe6<-
+dt_recipe6 <-
   dt_recipe5 %>% 
   step_discretize(Total_Income, num_breaks = 8)
   
 dt_recipe6 %>% prep
-dt_wf6<-
+
+dt_wf6 <-
  dt_wf %>% 
   add_recipe(dt_recipe6)
 
-wf6_results<-
-dt_wf6 %>% fit_resamples(resamples= datacv, 
-                           metrics = metric_set(roc_auc, accuracy, sensitivity, specificity,kap),
-                           control = control_resamples(save_pred = T))
+wf6_results <- dt_wf6 %>% 
+  fit_resamples(
+    resamples = datacv,
+    metrics = metric_set(
+      roc_auc, accuracy, sensitivity, specificity, kap),
+    control = control_resamples(save_pred = TRUE))
 
 
-wf6_results %>% collect_metrics(summarize = T)
+wf6_results %>% collect_metrics(summarize = TRUE)
 
-All_metrics<-
-wf_res_function(wf6_results,"Model 6")
-
+All_metrics <- wf_res_function(wf6_results, "Model 6")
 ```
+
 
 Binning our engineered feature `Total_Income` increased our model KAP from 52% to 53% and our accuracy from 82.1% to 82.4% so we will retain these steps. 
 
-## (Q2c) Decision Tree - Model Selection {.tabset .tabset-fade .tabset-pills}
 
-### Selection
 
-The average KAP metric tested on 10-validation training sets for each model is presented below and model 6 will be the model selected for further tuning and model finalization.
+
+
 
 ```{r}
 All_metrics %>% filter(.metric == "kap") %>% kable() %>% 
@@ -756,6 +651,8 @@ All_metrics %>% filter(.metric == "kap") %>% kable() %>%
 
 
 ```
+
+
 
 ### Model Tuning 
 
@@ -771,8 +668,10 @@ After optimizing our model based on various transformations accross multiple val
 In order to test various values, a grid of these features are set up with various combinations of options as shown below. 
 
 ```{r}
-tree_grid <- grid_regular(cost_complexity(), tree_depth(), min_n(), levels = 4)
-tree_grid %>%  kable %>% 
+tree_grid <- grid_regular(
+  cost_complexity(), tree_depth(), min_n(), levels = 4)
+tree_grid %>% 
+  kable %>% 
   kable_styling(
       full_width = F, position="center", bootstrap_options = c("hover")) %>%
   scroll_box(height = "200px")
@@ -783,12 +682,13 @@ All of these values are testing on the 10-fold cross-validation set where the re
 ```{r}
 doParallel::registerDoParallel()
 
-tree_engine<-
-  decision_tree(mode = "classification",
-                cost_complexity = tune(), #the minimum improvement in model needed at each node
-                tree_depth = tune(), #The maximum depth of the tree allowed
-                min_n(tune())#minimum number of datapoints required in node to tune decision tree
-                ) %>% 
+tree_engine <-
+  decision_tree(
+    mode = "classification",
+    cost_complexity = tune(), # min improvement needed at each node
+    tree_depth = tune(), # max depth of the tree allowed
+    min_n(tune()) # min number of datapoints required 
+  ) %>% 
   set_engine(engine = "rpart")
              
 set.seed(3)
@@ -801,17 +701,22 @@ tree_rs <- tune_grid(
   metrics = metric_set(accuracy, kap)
 )
 
-collect_metrics(tree_rs) %>% kable() %>% 
-   kable_styling(
-      full_width = F, position="center", bootstrap_options = c("hover")) %>% 
+collect_metrics(tree_rs) %>% 
+  kable() %>% 
+  kable_styling(
+    full_width = F, position="center", bootstrap_options = c("hover")) %>% 
   scroll_box(height = "200px")
 
-tree_rs %>% autoplot()+theme_light(base_family = "IBMPlexSans")
-
+tree_rs %>% autoplot() + theme_light(base_family = "IBMPlexSans")
 
 ```
 
-## (Q2d) Decision Tree - Final Results {.tabset .tabset-fade .tabset-pills}
+
+
+
+
+
+
 
 ### Finalize decision
 
@@ -907,6 +812,13 @@ metrics(testing_predictions, truth = Loan_Status,estimate = .pred_class)
 
 ```
 
+
+
+
+
+
+
+
 ## (Q3a) Random Forest - Data Prep {.tabset .tabset-fade .tabset-pills}
 
 ### Import and Preparation
@@ -952,6 +864,13 @@ hw3imputed <- complete(hw3imputed)
 summary(hw3imputed)
 ```
 
+
+
+
+
+
+
+
 ## (Q3b) Random Forest - Full Model (without Variable Selection) {.tabset .tabset-fade .tabset-pills}
 
 ### Partition of Training/Test Data and Data Transformation
@@ -979,6 +898,13 @@ importance(m1)
 plot(m1)
 ```
 
+
+
+
+
+
+
+
 ## (Q3c) Random Forest - Model with 3 Most Important Variables {.tabset .tabset-fade .tabset-pills}
 
 ### Features Highlight
@@ -993,6 +919,14 @@ plot(m1a)
 ```
 
 The plots for model and sub-model left me a little uneasy. Therefore, I decided to run another Random Forest model with the Categorical variables transformed into numerical variables and the dealing with multicollinear variables.
+
+
+
+
+
+
+
+
 
 ## (Q3d) Random Forest - Variable Selection via Determining Highly-Correlated Variables {.tabset .tabset-fade .tabset-pills}
 
@@ -1094,6 +1028,12 @@ m2a <- randomForest(Loan_Status ~ Credit_History + ApplicantIncome + LoanAmount,
 m2a
 plot(m2a)
 ```
+
+
+
+
+
+
 
 ## (Q3e) Random Forest - Model Comparison {.tabset .tabset-fade .tabset-pills}
 
@@ -1227,6 +1167,29 @@ tableModel %>%
   kable_styling()
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ### References
 
 [JAM] G. James, D. Witten, T. Hastie, R. Tibshirani. An Introduction to Statistical Learning : with Applications in R. New York: Springer, 2013.
@@ -1236,4 +1199,25 @@ tableModel %>%
 [RAN] Random Forests. Retrieved from website: https://uc-r.github.io/random_forests
 
 [RRA] R Random Forest Tutorial with Example. Retrieved from website: https://www.guru99.com/r-random-forest-tutorial.html
+
+
+
+
+### References
+
+1. https://www.kdnuggets.com/2017/09/missing-data-imputation-using-r.html
+
+2. https://www.researchgate.net/post/What-are-the-correlation-values-with-respect-to-low-moderate-high-correlation-specially-in-medical-research#:~:text=Correlation%20coefficients%20whose%20magnitude%20are,can%20be%20considered%20highly%20correlated.
+
+3. https://rpubs.com/sediaz/Correlations
+
+4. https://towardsdatascience.com/k-nearest-neighbors-algorithm-with-examples-in-r-simply-explained-KNN-1f2c88da405c
+
+5. https://www.datacamp.com/community/tutorials/machine-learning-in-r#normalization
+
+6. http://r-statistics.co/Missing-Value-Treatment-With-R.html
+
+
+
+
 
