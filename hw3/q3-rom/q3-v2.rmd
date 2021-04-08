@@ -290,8 +290,19 @@ tableModel %>%
   kable_styling()
 ```
 
+
+```{r eval = FALSE}
+# Save final model and predictions for Jimmy's work on #5
+readr::write_rds(m2, 'output/rf-mod2-model.Rds')
+readr::write_rds(prediction2, 'output/rf-mod2-predictions.Rds')
+```
+
+
+
 ## References
 
 [RAN] Random Forests. Retrieved from website: https://uc-r.github.io/random_forests
 
 [RRA] R Random Forest Tutorial with Example. Retrieved from website: https://www.guru99.com/r-random-forest-tutorial.html
+
+

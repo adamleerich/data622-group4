@@ -297,3 +297,12 @@ xgb.plot.importance(importance_matrix)
 The rank of importance agrees with our single-tree analysis, as we'd expect.
 
 
+
+
+
+```{r eval = FALSE}
+# Save final model and predictions for Jimmy's work on #5
+readr::write_rds(xgb_final, 'output/xgb-final-model.Rds')
+pred_final <- predict(xgb_final, newdata = dtest)
+readr::write_rds(pred_final, 'output/xgb-final-predictions.Rds')
+```

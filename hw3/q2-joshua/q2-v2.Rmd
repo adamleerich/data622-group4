@@ -395,6 +395,9 @@ metrics(testing_predictions, truth = Loan_Status,estimate = .pred_class)
 
 
 
-
-
-
+```{r eval = FALSE}
+# Save final model and predictions for Jimmy's work on #5
+readr::write_rds(xgb_final, 'output/xgb-final-model.Rds')
+pred_final <- predict(xgb_final, newdata = dtest)
+readr::write_rds(pred_final, 'output/xgb-final-predictions.Rds')
+```
