@@ -65,6 +65,8 @@ defaulttheme <- theme(
   panel.background = element_blank(),
   panel.border = element_rect(color = "black", fill = NA))
 
+conflict_prefer("filter", "dplyr")
+
 ```
 
 
@@ -685,7 +687,7 @@ tree_grid %>%
 All of these values are testing on the 10-fold cross-validation set where the result of every combination along each 10 splits of the data are averaged. The results of this tuning exercise is plotted below. KAP is the metric used to select the best tree, where the minimum cost function, a tree depth of 5 and a minimal node size of 40 is shown to be optimal.
 
 ```{r}
-doParallel::registerDoParallel()
+
 
 tree_engine <-
   decision_tree(
@@ -695,7 +697,7 @@ tree_engine <-
     min_n(tune()) # min number of datapoints required 
   ) %>% 
   set_engine(engine = "rpart")
-             
+doParallel::registerDoParallel()        
 set.seed(3)
 
 tree_rs <- tune_grid(
@@ -806,11 +808,6 @@ metrics(training_predictions, truth = Loan_Status,estimate = .pred_class)
 Similarly, the confusion matrix and accuracy of our testing set is shown below with an accuracy of 79.7% and kappa of 46.6%. Similar to the training dataset, the confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
 
 ```{r}
-Datatest<-
-  Datatest %>% 
-  mutate(Loan_Status.Y= if_else(.data[["Loan_Status.Y"]]==1,"Y","N")) %>% 
-  select(-Loan_Status.N) %>% 
-  rename(Loan_Status = Loan_Status.Y)
 
 testing_predictions<-
 predict(dtmodel,Datatest, type = "class") %>% 
@@ -822,6 +819,11 @@ predict(dtmodel,Datatest, type = "class") %>%
 testing_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
 
 metrics(testing_predictions, truth = Loan_Status,estimate = .pred_class)
+dtmodel$fit$fit %>% class
+
+write_rds(dtmodel$fit$fit$fit, "C:/Users/REGISTEJH/OneDrive - CDM Smith/Documents/CUNY SPS/622/data622-group4/hw3/output/dt_model.Rds")
+write_rds(training_predictions, "C:/Users/REGISTEJH/OneDrive - CDM Smith/Documents/CUNY SPS/622/data622-group4/hw3/output/dt_training_predictions.Rds")
+write_rds(testing_predictions, "C:/Users/REGISTEJH/OneDrive - CDM Smith/Documents/CUNY SPS/622/data622-group4/hw3/output/dt_testing_Predictions.Rds")
 
 ```
 
