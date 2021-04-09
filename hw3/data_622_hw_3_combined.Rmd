@@ -273,7 +273,7 @@ We prepare a dataset here for use in questions 2, 3 and 4.
 Before conducting any modeling, we will explore our dataset. Below describes the `Loan_approval` dataset where we have 614 observations with 13 features used to describe these observations. eight of these variables are factors while the other five are numeric.
 
 ```{r}
-url <- "https://raw.githubusercontent.com/adamleerich/data622-group4/main/hw3/Loan_approval.csv"
+url <- "https://raw.githubusercontent.com/adamleerich/data622-group4/main/hw3/data/Loan_approval.csv"
 
 # We know Loan_ID is not useful and we remove it now
 loandata <- read_csv(url) %>% 
@@ -445,7 +445,7 @@ loans <- loandata %>%
   select(-ApplicantIncome, -CoapplicantIncome) %>% 
   mutate(IncomeLoanRatio = Total_Income / LoanAmount) %>% 
   mutate_if(is.character, factor)
-
+?dummyVars()
 # Create dummyVars, *including* base levels!
 dv <- dummyVars(~ ., data = loans, fullRank = FALSE)
 loans_dv <- predict(dv, loans) %>% as.data.frame
@@ -469,8 +469,8 @@ loans_dv_test <- loans_dv[!L, ]
 # Save Rds files for later use
 # Rds files are an easy way to save individual R objects
 # They are preferred over RData files
-write_rds(loans_train, 'data/loans_train.Rds')
-write_rds(loans_test, 'data/loans_test.Rds')
+#write_rds(loans_train, 'data/loans_train.Rds')
+#write_rds(loans_test, 'data/loans_test.Rds')
 write_rds(loans_dv_train, 'data/loans_dv_train.Rds')
 write_rds(loans_dv_test, 'data/loans_dv_test.Rds')
 ```
@@ -497,6 +497,10 @@ for all questions in this homework.
 
 ```{r}
 Datatrain <- read_rds('data/loans_dv_train.Rds') %>% 
+  mutate(Loan_Status = ifelse(Loan_Status.Y, "Y", "N")) %>% 
+  select(-Loan_Status.N, -Loan_Status.Y)
+
+Datatest <- read_rds('data/loans_dv_test.Rds') %>% 
   mutate(Loan_Status = ifelse(Loan_Status.Y, "Y", "N")) %>% 
   select(-Loan_Status.N, -Loan_Status.Y)
 
@@ -608,13 +612,14 @@ All_metrics <-
 
 
 
+
 ### 6th Model: **Discretization Testing**
 
 All steps that were applied to model 5 are also applied to model 6. Additionally, Data discretization for numeric features were tested. Binning features sometimes allows groupings to better predict our response variable. Binning was tested along various features and various bins, the feature that improved model accuracy most when binning was the engineered feature `Total_Income`. The following steps were done to model 6:
 
 ```{r}
 dt_recipe6 <-
-  dt_recipe5 %>% 
+  dt_recipe1 %>% 
   step_discretize(Total_Income, num_breaks = 8)
   
 dt_recipe6 %>% prep
@@ -780,7 +785,8 @@ training_predictions<-
 predict(dtmodel,Datatrain, type = "class") %>% 
   bind_cols(Datatrain$Loan_Status) %>% 
   rename("Loan_Status"= "...2") %>% 
-  mutate(set = "Training")
+  mutate(set = "Training") %>% 
+  mutate(Loan_Status = as.factor(Loan_Status))
 
 
 ```
@@ -800,11 +806,18 @@ metrics(training_predictions, truth = Loan_Status,estimate = .pred_class)
 Similarly, the confusion matrix and accuracy of our testing set is shown below with an accuracy of 79.7% and kappa of 46.6%. Similar to the training dataset, the confusion matrix shows that the model is not very good at predicting the minority class of when an individual will not be approved for the loan.
 
 ```{r}
+Datatest<-
+  Datatest %>% 
+  mutate(Loan_Status.Y= if_else(.data[["Loan_Status.Y"]]==1,"Y","N")) %>% 
+  select(-Loan_Status.N) %>% 
+  rename(Loan_Status = Loan_Status.Y)
+
 testing_predictions<-
-predict(dtmodel,datatest, type = "class") %>% 
-  bind_cols(datatest$Loan_Status) %>% 
+predict(dtmodel,Datatest, type = "class") %>% 
+  bind_cols(Datatest$Loan_Status) %>% 
   rename("Loan_Status"= "...2") %>% 
-  mutate(set = "Testing")
+  mutate(set = "Testing") %>% 
+  mutate(Loan_Status = as.factor(Loan_Status))
 
 testing_predictions %>% conf_mat(truth = Loan_Status, estimate=.pred_class)
 
