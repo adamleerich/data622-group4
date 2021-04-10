@@ -1,1 +1,116 @@
+---
+title: "Group 4 Assignment 3"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "April 10, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+# load packages
+packages <- c(
+    'tidyverse', 
+    'corrplot', 
+    'palmerpenguins',
+    'class',
+    'kableExtra',
+    'naniar',
+    'DataExplorer',
+    'caret',
+    'tidymodels',
+    'rsample',
+    'themis',
+    'randomForest',
+    # 'htmlTable', 
+    # 'gmodels', 
+    # 'car', 
+    # 'mice', 
+    # 'tidyselect', 
+    # 'skimr', 
+    # 'tidymodels', 
+    'broom'
+    # 'dotwhisker', 
+    # 'vip', 
+    # 'parsnip', 
+    # 'workflows', 
+    # 'recipes', 
+    # 'tune', 
+    # 'yardstick'
+)
+```
+
+## Load RDS 
+
+```{r}
+# load rds into session
+rds_files = c(paste0("output/", list.files("output")), 
+              paste0("data/", list.files("data"))) %>%
+    grep(pattern = ".rds$", ., ignore.case = TRUE, value = TRUE)
+
+var_names = gsub(pattern = "(output/|data/|.[Rr]ds)", replacement = "", x = rds_files) %>%
+    gsub(pattern = "-", replacement = "_", .)
+
+sapply(1:length(rds_files), function(x) assign(var_names[x], readRDS(rds_files[x]), envir = .GlobalEnv)) %>% invisible()
+```
+
+## Tidy Models Output
+
+```{r}
+### look at prediction result
+
+# reorder level 
+loans_test_target <- relevel(loans_test$Loan_Status, ref = "Y")
+
+# decision tree
+dt_testing_predictions = relevel(dt_testing_Predictions$.pred_class, ref = "Y")
+dt_confusionMatrix = caret::confusionMatrix(dt_testing_predictions, loans_test_target)
+dt_confusionMatrix
+
+# random forest
+rf_mod2_predictions = relevel(rf_mod2_predictions, ref = "Y")
+rf_confusionMatrix = caret::confusionMatrix(rf_mod2_predictions, loans_test_target)
+rf_confusionMatrix
+
+# xgb boost
+xgb_pred = ifelse(xgb_final_predictions > .5, 'Y', 'N') %>% 
+    factor(., levels = c("Y", "N"), labels = c("Y", "N"))
+xgb_confusionMatrix = caret::confusionMatrix(xgb_pred, loans_test_target)
+xgb_confusionMatrix
+
+# tidy output
+dt_stat = broom::tidy(dt_confusionMatrix)
+rf_stat = broom::tidy(rf_confusionMatrix)
+xgb_stat = broom::tidy(xgb_confusionMatrix)
+
+model_stat_tidy = dplyr::inner_join(dt_stat %>% dplyr::select(term, `decision tree` = estimate),
+                                    rf_stat %>% dplyr::select(term, `random forest` = estimate), 
+                                    by = "term") %>%
+    dplyr::inner_join(., xgb_stat %>% dplyr::select(term, `gradient boosting` = estimate),
+                      by = "term")
+
+model_stat_tidy %>% dplyr::filter(term != "mcnemar")
+```
+
+There were six decision tree models built. They were built in sequential order, so that each was built upon an improvement of its predecessor. Accuracy was improved gradually with additional information thrown into the model, e.g. we generated the "Total_Income" variable based on the "ApplicantIncome" + "CoapplicantIncome". Subsequently, "IncomeLoanRatio" was created based on the Total_Income/LoanAmount, and finally we carried out discretization of the "Total_Income" into 6 bins. We also tried to remove features that had low variance. In addition, we tried undersampling in one of our models as an attempt to tackle the imbalanced data. We performed tuning for the best (the sixth) model, and we focused on cost complexity, tree depth and the min n (the minimum number of data points needed at a node for a split to occur). The result suggested that there were only two strong features (see above variable importance plot) that could predict the loan status, i.e. "Credit_History" and "IncomeLoanRatio". After many iteration and tuning exercise, the decision tree algorithm was able to achieve 80.4% accuracy and Kappa of 48.7%. 
+
+For random forest, we built three models for comparison, varying the number of variables at each split (mtree = 2, 3, 4, 5, 6, and 7) and the number of trees generated (ntree = 100, 200, 300, 400, 425, 450, and 475). The result suggested that the most optimal parameters in this data set based upon accuracy, error rate, Kappa, and sensitivity would be mtree = 3 and ntree = 425. The best model achieved 81.7% accuracy and Kappa of 53.8%. 
+
+For gradient boosting, we focused on tuning two parameters "max_depth" and "nround" for achieving best accuracy. Using a for loop to run for each combination of "max_depth" (1:5) and "nround" (1:20) in a grid search, we used a subset of those 20-iteration to accomplish the search for the best combination of these parameters. At iteration 17, we finally saw a low point in our test error rate. The final model produced a similar conclusion as the decision tree, i.e. pointing to the importance of the "Credit_History" and "IncomeLoanRatio". The gradient boosting model achieved the best performance among the three algorithms with 82.4% accuracy and Kappa of 56.3%. 
+
+The gradient boosting model was clearly the winner among the three based on various metrics. However, the result of decision tree is generally better in terms of interpretability and communication (visually) with various stakeholders. Decision tree algorithm can easily work with numerical and categorical features. It requires very little data preprocessing and it holds no assumptions about the shape of data (thus non-parametric and suitable for fitting various type of data). It also happens to be less affected by multicollinearity compared to other classifiers. However, it tends to be overfitting, and if the data is not well balanced, it can cause significant bias (such as the data set in this assignment, and we tried to resolve this issue by undersampling but with no significant improvement). When one's data set gets more complex with large number of features, random forest begins to shine and presented to be a better alternative. 
+
+Random forest also works easily with numerical and categorical features without much need in data preprocessing. Random forest implicitly performs feature selection and generate uncorrelated decision trees based on choosing a random set of features to build each decision tree. Thus, it is less susceptible by outliers and it can handle linear and non-linear relationships well. Essentially, random forest is to average the results across the multiple decision trees (based on a random subset of input variables) that it builds, thus it can generally provide high accuracy and balance the bias-variance trade-off very well. However, the down side of random forest is that it tends to be less visible or interpretable compared to decision tree. Random forest is not as straightforward as decision tree in communicating the output (such as highlighting specific set of important features) to the stakeholders. In addition, it can be computationally intensive for large data sets. 
+
+Similar to random forest, gradient boosting also works like a black box algorithm. Like any other ensemble machine learning procedure, models are built in sequential orders, where later models (or top layers) would correct preceding predictors (from base layers) to arrive at better prediction. Gradient boosting aims at fitting a new predictor in the residual errors committed by the preceding predictor. The errors from prior step are highlighted, and by combining one weak learner to the next learner, the error is reduced significantly over time. The algorithm is less susceptible to overfitting and the result tends to be easy for communication with highlighting important features. The disadvantage is that it can be over sensitive to outliers since every classifier attempts to fix the residual errors generated from prior step. Another disadvantage is the lack of scalability. As one can imagine, the implementation is based on correcting previous predictors, thus making the procedure difficult to streamline. It can be very challenging for large and complex data set. 
+
+Each of the machine learning algorithms discussed above shares different pros and cons. For this assignment, gradient boosting is the most preferrable algorithm for this small data set. It is the best classifier in this exercise as reflected by accuracy, Kappa, F1 score, precision, etc. For better result (such as enhancing accuracy and reducing overfitting), future attempts can focus more on feature engineering. For example, while "Credit_History" is obviously important, we come up with the second most important feature in our model, i.e. "IncomeLoanRatio" that holds strong predictive power and it is also highly intuitive.
+
 
