@@ -1,0 +1,131 @@
+---
+title: "Group 4 Final Project"
+author: "Ajay Arora, Romerl Elizes, Jimmy Ng, Joshua Registe, Adam Rich"
+date: "May 23, 2021"
+output:
+  rmdformats::readthedown:
+    self_contained: yes
+    thumbnails: yes
+    lightbox: yes
+    gallery: no
+    highlight: tango
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE,
+  cache = TRUE)
+
+packages <- c(
+  'tidyverse', 
+  'corrplot', 
+  'palmerpenguins',
+  'class',
+  'kableExtra',
+  'naniar',
+  'DataExplorer',
+  'caret',
+  'tidymodels',
+  'rsample',
+  'themis',
+  'randomForest',
+  'car',
+  'xgboost',
+  'broom',
+  'DBI',
+  'RMySQL',
+  'RJDBC'
+)
+
+for (pkg in packages) {
+  suppressPackageStartupMessages(suppressWarnings(
+    library(
+      pkg, character.only = TRUE, 
+      warn.conflicts = FALSE, quietly = TRUE)
+  ))
+}
+
+# A ggplot2 function
+defaulttheme <- theme(
+  panel.background = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA))
+```
+ 
+## (Q1) Data Prep and Mitigation {.tabset .tabset-fade .tabset-pills} 
+
+#### Introduction
+
+After brainstorming the data sets available, Group 4 decided to use the New York City (NYC) 311 data found in the link: https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9. It is a very ambitious undertaking given that all Assignments covered in this course consisted of no more than 614 rows of records. The NYC data consists of 25+ million rows and 41 columns.
+The initial goal of the project is to develop a prediction algorithm from 3 possible models that would allow 311 operators to give an estimate of when the request will be resolved?  It's a simple statement, but a complicated problem.  If the 311 department wanted to give people estimates they'd have to balance: 1) being conservative and overestimating, but people get angry cause it's going to take a long time to get done, 2) underestimating to make people feel optimistic, but then always failing, 3) giving a range and having that range be so big that an estimate is worthless, 4) giving an unbiased point estimate and always being wrong. It may be a huge undertaking, but Group 4 wanted to perform predictions based on not only a real data set but see if the algorithms provided by R can handle very large data sets.  
+
+#### Data Download and Project Preparation
+
+An initial problem with handling a data set with 25+ million rows is finding a repository within the time frame of the project that can meet the needs of the Group. There were two possible options: R-Studio Cloud Pro or Amazon Web Service. R-Studio Cloud Pro costs $25 per month at the student version but it could only handle up to 10 million rows of records. Romerl queried a sales representative from R-Studio Cloud Pro and got a quote of $300 plus a $50 per student cost for usage of such a large data set. which is unacceptable on a student budget for a one+ month project. Ajay found Amazon Web Service and it had four advantages: 1) it was free for one year, 2) it was able to house a table of 25+ million rows and more, 3) the data could be uploaded onto a mySQL database, 4) Group 4 team members could download the data on their own machines with the proper mySQL credentials provided by Ajay.
+
+The next problem facing the Group is the initial downloading of the data. Ajay estimated a download time of 1.5 hours on R to mitigate the 25+ million rows. Ajay decided to split the massive table into 14 sub-tables of approximately 1.8 million rows each. The download time of data even at smaller queries were far more acceptable and allowed the Group to develop the Project further.
+
+```{r}
+colsqlstr <- "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'data1';"
+
+# placeholder for maxrows
+maxrows = 30
+cn <- dbConnect(drv      = RMySQL::MySQL(),
+                username = "data622",
+                password = "group4622",
+                host     = "data622.c3alv39zxnhk.us-east-2.rds.amazonaws.com",
+                port     = 3306,
+                dbname   = "")
+
+# I queried column names from ny311 so we can decide which variables to eliminate and use a for-loop to concatenate a string for the select statement we will use to download data.
+colnms <- dbGetQuery(cn, colsqlstr)
+colnmslist <- list(colnms$COLUMN_NAME)
+str(colnmslist)
+
+
+mainsqlstr <- paste("SELECT * FROM DATA622.data1 order by rand() limit 0,",maxrows,";")
+data2 <- dbGetQuery(cn, mainsqlstr)
+data2
+
+summary(data2)
+dbDisconnect(cn)
+
+#Data Type Conversion
+
+data2$Incident_Zip <- as.numeric(as.character(data2$Incident_Zip))
+data2$BBL <- as.numeric(as.character(data2$BBL))
+data2$X_Coordinate_State_Plane <- as.numeric(as.character(data2$X_Coordinate_State_Plane))
+data2$Y_Coordinate_State_Plane <- as.numeric(as.character(data2$Y_Coordinate_State_Plane))
+
+data2$Latitude <- as.numeric(as.character(data2$Latitude))
+data2$Longitude <- as.numeric(as.character(data2$Longitude))
+
+#data2[['Created_Date']] <- strptime(data2[['Created_Date']], format='%Y.%m.%d')
+data2[['Created_Date']] <- as.Date(data2[['Created_Date']])
+data2[['Closed_Date']] <- as.Date(data2[['Closed_Date']])
+data2[['Due_Date']] <- as.Date(data2[['Due_Date']])
+data2[['Resolution_Action_Updated_Date']] <- as.Date(data2[['Resolution_Action_Updated_Date']])
+
+
+```
+
+## (Q2) Random Forest {.tabset .tabset-fade .tabset-pills} 
+
+TO-DO
+
+## (Q3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
+
+TO-DO
+
+## (Q4) Neural Network {.tabset .tabset-fade .tabset-pills} 
+
+TO-DO
+
+## (Q5) Model Performance and Selection {.tabset .tabset-fade .tabset-pills}
+
+TO-DO
