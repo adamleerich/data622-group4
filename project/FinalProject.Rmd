@@ -113,6 +113,29 @@ data2[['Resolution_Action_Updated_Date']] <- as.Date(data2[['Resolution_Action_U
 
 
 ```
+## Data Exploration
+
+```{r}
+#Top complaint types
+
+ggplot(subset(data2, data2$Complaint_Type %in% count(data2, data2$Complaint_Type, sort=T)[1:50,]$Complaint_Type), 
+       aes(data2$Complaint_Type)) + 
+  geom_histogram(stat = "count",color="black", fill="blue") +
+  labs(x="Complaint Type", y="Service Requests") +
+  coord_flip() + theme_bw()
+
+```
+
+```{r}
+# Top Borough 
+
+ggplot(subset(data2, data2$Borough %in% count(data2, data2$Borough, sort=T)[1:50,]$Borough), 
+       aes(data2$Borough)) + 
+  geom_histogram(stat = "count",color="black", fill="blue") +
+  labs(x="Borough", y="Service Requests") +
+  coord_flip() + theme_bw()
+```
+
 
 ## (Q2) Random Forest {.tabset .tabset-fade .tabset-pills} 
 
