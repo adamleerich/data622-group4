@@ -20,8 +20,7 @@ knitr::opts_chunk$set(
   echo = TRUE, 
   warning = FALSE, 
   message = FALSE,
-  cache = TRUE)
-
+  cache = FALSE)
 packages <- c(
   'tidyverse', 
   'corrplot', 
@@ -29,6 +28,7 @@ packages <- c(
   'class',
   'kableExtra',
   'naniar',
+  'mice',
   'DataExplorer',
   'caret',
   'tidymodels',
@@ -42,7 +42,6 @@ packages <- c(
   'RMySQL',
   'RJDBC'
 )
-
 for (pkg in packages) {
   suppressPackageStartupMessages(suppressWarnings(
     library(
@@ -50,7 +49,6 @@ for (pkg in packages) {
       warn.conflicts = FALSE, quietly = TRUE)
   ))
 }
-
 # A ggplot2 function
 defaulttheme <- theme(
   panel.background = element_blank(),
@@ -71,85 +69,179 @@ An initial problem with handling a data set with 25+ million rows is finding a r
 The next problem facing the Group is the initial downloading of the data. Ajay estimated a download time of 1.5 hours on R to mitigate the 25+ million rows. Ajay decided to split the massive table into 14 sub-tables of approximately 1.8 million rows each. The download time of data even at smaller queries were far more acceptable and allowed the Group to develop the Project further.
 
 ```{r}
-colsqlstr <- "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'data1';"
-
 # placeholder for maxrows
-maxrows = 30
+maxrows = 400
 cn <- dbConnect(drv      = RMySQL::MySQL(),
                 username = "data622",
                 password = "group4622",
                 host     = "data622.c3alv39zxnhk.us-east-2.rds.amazonaws.com",
                 port     = 3306,
                 dbname   = "")
-
 # I queried column names from ny311 so we can decide which variables to eliminate and use a for-loop to concatenate a string for the select statement we will use to download data.
-colnms <- dbGetQuery(cn, colsqlstr)
-colnmslist <- list(colnms$COLUMN_NAME)
-str(colnmslist)
-
-
-mainsqlstr <- paste("SELECT * FROM DATA622.data1 order by rand() limit 0,",maxrows,";")
+# - WE MAY NOT NEED THIS.
+#colsqlstr <- "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'data1';"
+#colnms <- dbGetQuery(cn, colsqlstr)
+#colnmslist <- list(colnms$COLUMN_NAME)
+#str(colnmslist)
+#mainsqlstr <- paste("SELECT * FROM DATA622.data1 order by rand() limit 0,",maxrows,";")
+mainsqlstr <- paste("SELECT * FROM DATA622.data1 limit 0,",maxrows,";")
 data2 <- dbGetQuery(cn, mainsqlstr)
-data2
-
+str(data2)
 summary(data2)
 dbDisconnect(cn)
+```
 
-#Data Type Conversion
+We performed some Data Type conversions in order to be able to execute preliminary Data Exploration activities.
 
+```{r}
 data2$Incident_Zip <- as.numeric(as.character(data2$Incident_Zip))
 data2$BBL <- as.numeric(as.character(data2$BBL))
 data2$X_Coordinate_State_Plane <- as.numeric(as.character(data2$X_Coordinate_State_Plane))
 data2$Y_Coordinate_State_Plane <- as.numeric(as.character(data2$Y_Coordinate_State_Plane))
-
 data2$Latitude <- as.numeric(as.character(data2$Latitude))
 data2$Longitude <- as.numeric(as.character(data2$Longitude))
-
 #data2[['Created_Date']] <- strptime(data2[['Created_Date']], format='%Y.%m.%d')
-data2[['Created_Date']] <- as.Date(data2[['Created_Date']])
-data2[['Closed_Date']] <- as.Date(data2[['Closed_Date']])
-data2[['Due_Date']] <- as.Date(data2[['Due_Date']])
-data2[['Resolution_Action_Updated_Date']] <- as.Date(data2[['Resolution_Action_Updated_Date']])
+data2$Created_Date <- as.POSIXct(strptime(data2$Created_Date, "%Y-%m-%d %H:%M:%S"))
+data2$Closed_Date <- as.POSIXct(strptime(data2$Closed_Date, "%Y-%m-%d %H:%M:%S"))
+data2$Resolution_Action_Updated_Date <- as.POSIXct(strptime(data2$Resolution_Action_Updated_Date, "%Y-%m-%d %H:%M:%S"))
+data2$Due_Date <- as.POSIXct(strptime(data2$Due_Date, "%Y-%m-%d %H:%M:%S"))
 
-
+#data2[['Created_Date']] <- as.Date(data2[['Created_Date']])
+#data2[['Closed_Date']] <- as.Date(data2[['Closed_Date']])
+#data2[['Due_Date']] <- as.Date(data2[['Due_Date']])
+#data2[['Resolution_Action_Updated_Date']] <- as.Date(data2[['Resolution_Action_Updated_Date']])
+data2$ResolutionTime <- difftime(data2$Closed_Date,data2$Created_Date, units = "min")
 ```
-## Data Exploration
+
+#### Data Exploration
+
+For our first Data Exploration activity, we did a plot of the Top Complaint Types
 
 ```{r}
 #Top complaint types
-
-ggplot(subset(data2, data2$Complaint_Type %in% count(data2, data2$Complaint_Type, sort=T)[1:50,]$Complaint_Type), 
+ggplot(subset(data2, data2$Complaint_Type %in% count(data2, data2$Complaint_Type, sort=T)[1:maxrows,]$Complaint_Type), 
        aes(data2$Complaint_Type)) + 
   geom_histogram(stat = "count",color="black", fill="blue") +
   labs(x="Complaint Type", y="Service Requests") +
   coord_flip() + theme_bw()
-
 ```
+
+For our second Data Exploration activity, we executed a plot for the Top Borough
 
 ```{r}
 # Top Borough 
-
-ggplot(subset(data2, data2$Borough %in% count(data2, data2$Borough, sort=T)[1:50,]$Borough), 
+ggplot(subset(data2, data2$Borough %in% count(data2, data2$Borough, sort=T)[1:maxrows,]$Borough), 
        aes(data2$Borough)) + 
   geom_histogram(stat = "count",color="black", fill="blue") +
   labs(x="Borough", y="Service Requests") +
   coord_flip() + theme_bw()
 ```
 
+For our third Data Exploration activity, we executed a plot of the Top Complaint Types by Borough and Status.
+
 ```{r}
 # Top complaint types by Borough and Status 
-
-
-ggplot(subset(data2, data2$Complaint_Type %in% count(data2, Complaint_Type, sort=T)[1:200,]$Complaint_Type), aes(x=data2$Status, y = data2$Complaint_Type)) +
+ggplot(subset(data2, data2$Complaint_Type %in% count(data2, Complaint_Type, sort=T)[1:maxrows,]$Complaint_Type), aes(x=data2$Status, y = data2$Complaint_Type)) +
   geom_point() +
   geom_count(n=2, colour="black") + 
   facet_wrap(~data2$Borough)
 ```
 
+#### Variable Elimination
+
+We will have to get rid of some variables as they may not be needed for model building. For expediency, we will get rid of all NAs instead of imputing them.
+
+- **Unique_Key** - continuous variable - ID - not needed.
+
+- **Agency_Name** - full name of department or organization where 311 calls were made to. Agency is more appropriate.
+
+- **Incident_Address** - full street address - too much disparate information to make an appropriate model
+
+- **Street_Name** - Street name - too much disparate information to make an appropriate model
+
+- **Cross_Street_1** - cross street - too much disparate information to make an appropriate model
+
+- **Cross_Street_1** - cross street - too much disparate information to make an appropriate model
+
+- **Intersection_Street_1** - intersection street - too much disparate information to make an appropriate model
+
+- **Intersection_Street_2** - intersection street - too much disparate information to make an appropriate model
+
+- **Landmark** - too much disparate information to make an appropriate model
+
+- **City** - While NYC has 5 boroughs, Queens has multiple cities which will provide too much disparate information to make an appropriate model.
+
+- **Resolution_Description** - detailed description of resolution - too much disparate information to make an appropriate model
+
+- **X_Coordinate_State_Plane** - x coordinate of approximate location - too much disparate information to make an appropriate model 
+
+- **Y_Coordinate_State_Plane** - y coordinate of approximate location - too much disparate information to make an appropriate model
+
+- **Longitude** - longitude of approximate location - too much disparate information to make an appropriate model
+
+- **Latitude** - latitude of approximate location - too much disparate information to make an appropriate model
+
+- **Location**  - set of latitude and longitude of approximate location - too much disparate information to make an appropriate model
+
+- **Vehicle_Type** - almost all values are NA 
+
+- **Taxi_Company_Borough** - almost all values are NA 
+
+- **Taxi_Pick_Up_Location** - almost all values are NA 
+
+- **Bridge_Highway_Name** - almost all values are NA 
+
+- **Bridge_Highway_Direction** - almost all values are NA 
+
+- **Road_Ramp** - almost all values are NA 
+
+- **Bridge_Highway_Segment** - almost all values are NA
+
+- **Bridge_Highway_Segment** - almost all values are NA
+
+- **Due_Date** - almost all values are NA
+
+- **Facility_Type** - too many values are NA
+
+- **Address_Type** - too many values are NA
+
+- **Park_Borough** - this is the same as Borough
+
+- **Park_Facility_Name** - Random Forest algorithm cannot handle this variable as it has over 53 categories
+
+- **Community_Board** - Random Forest algorithm cannot handle this variable as it has over 53 categories
+
+```{r}
+data2cand <- data2 %>% 
+  select(-Unique_Key, -Agency_Name, -Incident_Address, -Cross_Street_1, -Cross_Street_2, -Intersection_Street_1, -Intersection_Street_2, -Landmark, -City, -Street_Name, -Resolution_Description, -X_Coordinate_State_Plane,  -Y_Coordinate_State_Plane, -Longitude, -Latitude, -Location, -Vehicle_Type, -Taxi_Company_Borough, -Taxi_Pick_Up_Location, -Bridge_Highway_Name, -Bridge_Highway_Direction, -Road_Ramp, -Bridge_Highway_Segment, -Due_Date, -Facility_Type, -Address_Type, -Park_Borough, -Park_Facility_Name, -Community_Board) %>% 
+  mutate_if(is.character, factor)
+data2cand <- na.omit(data2cand)
+
+summary(data2cand)
+nrow(data2cand)
+#head(data2cand,100)
+```
+
+#### Split Data into Training and Test Data Sets
+
+Next we will split the data into training and test data sets
+
+```{r}
+set.seed(100)
+inTrain1 <- createDataPartition(y = data2cand$ResolutionTime, p=0.75, list = FALSE)
+training1 <- data2cand[inTrain1,]
+testing1 <- data2cand[-inTrain1,]
+```
 
 ## (Q2) Random Forest {.tabset .tabset-fade .tabset-pills} 
 
 TO-DO
+
+```{r}
+#set.seed(521)
+#m1 <- randomForest(ResolutionTime ~ ., data = training1)
+#print(m1)
+```
 
 ## (Q3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
 
