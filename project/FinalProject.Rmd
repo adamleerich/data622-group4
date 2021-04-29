@@ -55,7 +55,7 @@ defaulttheme <- theme(
   panel.border = element_rect(color = "black", fill = NA))
 ```
  
-## (Q1) Data Prep and Mitigation {.tabset .tabset-fade .tabset-pills} 
+## (1) Data Prep and Mitigation {.tabset .tabset-fade .tabset-pills} 
 
 #### Introduction
 
@@ -70,7 +70,9 @@ The next problem facing the Group is the initial downloading of the data. Ajay e
 
 ```{r}
 # placeholder for maxrows
-maxrows = 400
+maxrows = 65000
+# Start the clock!
+ptm <- proc.time()
 cn <- dbConnect(drv      = RMySQL::MySQL(),
                 username = "data622",
                 password = "group4622",
@@ -91,9 +93,17 @@ summary(data2)
 dbDisconnect(cn)
 ```
 
+Database query download time
+
+```{r}
+# Stop the clock
+proc.time() - ptm
+```
 We performed some Data Type conversions in order to be able to execute preliminary Data Exploration activities.
 
 ```{r}
+# Start the clock!
+ptm <- proc.time()
 data2$Incident_Zip <- as.numeric(as.character(data2$Incident_Zip))
 data2$BBL <- as.numeric(as.character(data2$BBL))
 data2$X_Coordinate_State_Plane <- as.numeric(as.character(data2$X_Coordinate_State_Plane))
@@ -106,11 +116,8 @@ data2$Closed_Date <- as.POSIXct(strptime(data2$Closed_Date, "%Y-%m-%d %H:%M:%S")
 data2$Resolution_Action_Updated_Date <- as.POSIXct(strptime(data2$Resolution_Action_Updated_Date, "%Y-%m-%d %H:%M:%S"))
 data2$Due_Date <- as.POSIXct(strptime(data2$Due_Date, "%Y-%m-%d %H:%M:%S"))
 
-#data2[['Created_Date']] <- as.Date(data2[['Created_Date']])
-#data2[['Closed_Date']] <- as.Date(data2[['Closed_Date']])
-#data2[['Due_Date']] <- as.Date(data2[['Due_Date']])
-#data2[['Resolution_Action_Updated_Date']] <- as.Date(data2[['Resolution_Action_Updated_Date']])
 data2$ResolutionTime <- difftime(data2$Closed_Date,data2$Created_Date, units = "min")
+data2$ResolutionTime <- as.numeric(data2$ResolutionTime)
 ```
 
 #### Data Exploration
@@ -167,11 +174,11 @@ We will have to get rid of some variables as they may not be needed for model bu
 
 - **Intersection_Street_2** - intersection street - too much disparate information to make an appropriate model
 
-- **Landmark** - too much disparate information to make an appropriate model
+- **City** - Random Forest algorithm cannot handle this variable as it has over 53 categories. The borough of Queens has too many cities that go over the maximum 53 categories.
 
-- **City** - While NYC has 5 boroughs, Queens has multiple cities which will provide too much disparate information to make an appropriate model.
+- **Resolution_Description** - Random Forest algorithm cannot handle this variable as it has over 53 categories
 
-- **Resolution_Description** - detailed description of resolution - too much disparate information to make an appropriate model
+- **Landmark** - Random Forest algorithm cannot handle this variable as it has over 53 categories
 
 - **X_Coordinate_State_Plane** - x coordinate of approximate location - too much disparate information to make an appropriate model 
 
@@ -211,15 +218,115 @@ We will have to get rid of some variables as they may not be needed for model bu
 
 - **Community_Board** - Random Forest algorithm cannot handle this variable as it has over 53 categories
 
+- **Descriptor** - Random Forest algorithm cannot handle this variable as it has over 53 categories
+
+- **Closed_Date** - Variable is not needed because it is used to calculate ResolutionTime
+
+- **Created_Date** - Variable is not needed because it is used to calculate ResolutionTime
+
 ```{r}
 data2cand <- data2 %>% 
-  select(-Unique_Key, -Agency_Name, -Incident_Address, -Cross_Street_1, -Cross_Street_2, -Intersection_Street_1, -Intersection_Street_2, -Landmark, -City, -Street_Name, -Resolution_Description, -X_Coordinate_State_Plane,  -Y_Coordinate_State_Plane, -Longitude, -Latitude, -Location, -Vehicle_Type, -Taxi_Company_Borough, -Taxi_Pick_Up_Location, -Bridge_Highway_Name, -Bridge_Highway_Direction, -Road_Ramp, -Bridge_Highway_Segment, -Due_Date, -Facility_Type, -Address_Type, -Park_Borough, -Park_Facility_Name, -Community_Board) %>% 
+  select(-Unique_Key, -Agency_Name, -Incident_Address, -Cross_Street_1, -Cross_Street_2, -Intersection_Street_1, -Intersection_Street_2, -City, -Landmark, -Resolution_Description, -Street_Name, -X_Coordinate_State_Plane,  -Y_Coordinate_State_Plane, -Longitude, -Latitude, -Location, -Vehicle_Type, -Taxi_Company_Borough, -Taxi_Pick_Up_Location, -Bridge_Highway_Name, -Bridge_Highway_Direction, -Road_Ramp, -Bridge_Highway_Segment, -Due_Date, -Facility_Type, -Address_Type, -Park_Borough, -Park_Facility_Name, -Community_Board, -Descriptor, -Closed_Date, -Created_Date) %>% 
   mutate_if(is.character, factor)
 data2cand <- na.omit(data2cand)
 
 summary(data2cand)
 nrow(data2cand)
-#head(data2cand,100)
+```
+
+#### Reduce Number of Categorical Variables to Less Than 53
+
+Certain Categorical variables have greater than 53 categories. A Random Forest cannot be executed against these variables because of this. A solution would be to reduce the number of categories by combining like categories together.
+
+```{r}
+data2cand$Complaint_Type <- as.character(data2cand$Complaint_Type)
+
+# Consolidate Noise variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Residential"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Helicopter"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Street/Sidewalk"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Commercial"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Vehicle"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Park"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - House of Worship"] <- "Noise"
+
+# Consolidate Sanitary Condition variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "UNSANITARY CONDITION"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Animal Pvt Property"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Indoor Sewage"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Pigeon Condition"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Dirty Conditions"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Root/Sewer/Sidewalk Condition"] <- "Sanitation Condition"
+
+# Consolidate Damaged Tree variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Damaged Tree"] <- "Tree Damage"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Overgrown Tree/Branches"] <- "Tree Damage"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Dead/Dying Tree"] <- "Tree Damage"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Tree Damage"] <- "Tree Damage"
+
+# Consolidate Street Sign Issue variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Damaged"] <- "Street Sign Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Missing"] <- "Street Sign Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Dangling"] <- "Street Sign Issue"
+
+# Consolidate Repair Issue variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "PAINT/PLASTER"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "PLUMBING"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "ELECTRIC"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "APPLIANCE"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "HEAT/HOT WATER"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "WATER LEAK"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "FLOORING/STAIRS"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "DOOR/WINDOW"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "ELEVATOR"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "GENERAL"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "OUTSIDE BUILDING"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "SAFETY"] <- "Repair Issue"
+
+# Consolidate Parking Violation variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Blocked Driveway"] <- "Parking Violation"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Parking"] <- "Parking Violation"
+
+# Consolidate Homeless Issue variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Encampment"] <- "Homeless Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Person Assistance"] <- "Homeless Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Street Condition"] <- "Homeless Issue"
+
+# Consolidate Animal Issue variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Animal-Abuse"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Animal in a Park"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Unleashed Dog"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Rodent"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Mosquitoes"] <- "Animal Issue"
+
+# Consolidate Dining Establishment variables
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Food Establishment"] <- "Dining Establishment"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Outdoor Dining"] <- "Dining Establishment"
+
+data2cand$Complaint_Type <- as.factor(data2cand$Complaint_Type)    
+unique(data2cand$Complaint_Type)
+
+data2cand$Location_Type <- as.character(data2cand$Location_Type)
+data2cand$Location_Type[data2cand$Location_Type == "RESIDENTIAL BUILDING"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Residential Building/House"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Residential Building"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Residential"] <- "Residential Property"
+data2cand$Location_Type <- as.factor(data2cand$Location_Type)    
+unique(data2cand$Location_Type)
+```
+
+#### Create Variable Acceptable_Resolution_Status
+
+Upon executing the summary for ResolutionTime, we have a very wide set of values for ResolutionTime. The mean for ResolutionTime is an unacceptabe 4878 minutes while the median is an acceptable 32.4 minutes. We will create a variable called Acceptable_Resolution_Status with 'Y' for any value between 1 and 32.4 minutes and 'N' for 0 value or any value greater than 32.4 minutes.
+
+```{r}
+medianARS <- 32.4
+data2cand$Acceptable_Resolution_Status = case_when(data2cand$ResolutionTime == 0 ~ 'N', 
+                        (data2cand$ResolutionTime > 0 & data2cand$ResolutionTime <= medianARS) ~ 'Y', 
+                        data2cand$ResolutionTime > medianARS ~ 'N')
+summary(data2cand$ResolutionTime)
+data2cand$Acceptable_Resolution_Status <- as.factor(data2cand$Acceptable_Resolution_Status)
+summary(data2cand)
 ```
 
 #### Split Data into Training and Test Data Sets
@@ -228,29 +335,191 @@ Next we will split the data into training and test data sets
 
 ```{r}
 set.seed(100)
-inTrain1 <- createDataPartition(y = data2cand$ResolutionTime, p=0.75, list = FALSE)
+inTrain1 <- createDataPartition(y = data2cand$Acceptable_Resolution_Status, p=0.75, list = FALSE)
 training1 <- data2cand[inTrain1,]
 testing1 <- data2cand[-inTrain1,]
 ```
 
-## (Q2) Random Forest {.tabset .tabset-fade .tabset-pills} 
+## (2) Random Forest {.tabset .tabset-fade .tabset-pills} 
 
-TO-DO
+The random forest algorithm works well with all sorts of data:
+numeric and categorical, un-scaled and scaled, full rank and highly correlative.
+
+#### Model 1 - Default (which has factor variables in single columns)
 
 ```{r}
-#set.seed(521)
-#m1 <- randomForest(ResolutionTime ~ ., data = training1)
-#print(m1)
+set.seed(521)
+m1 <- randomForest(Acceptable_Resolution_Status ~ ., data = training1)
+print(m1)
+plot(m1)
+#Evaluate variable importance
+importance(m1)
+varImpPlot(m1)
 ```
 
-## (Q3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
+We ran the random forest for the default model and we were very satisfied with the results. There is an error rate of 0%. We will find out later when we run the confusion matrix of the prediction values that Model 1 has an accuracy of 100%, a Kappa of 100%, and a Sensitivity of 100%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that ResolutionTime has an extremely high Coeefficient. While it is a major predictor for the Application_Resolution_Status, it is highly correlated as we used the values of ResolutionTime to create the dependent variable Application_Resolution_Status. The next 3 most important variables afterwards - Resolution_Action_Updated_Date, Agency, and Complaint_Type - may show promise because they are variables from the original data set. We decided to keep the **m1** model as Model 1 for comparisons with the other Random Forest models in this section. 
+
+#### Model 2 - Default Model minus ResolutionTime variable
+
+```{r}
+set.seed(521)
+m2 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1)
+print(m2)
+plot(m2)
+#Evaluate variable importance
+importance(m2)
+varImpPlot(m2)
+```
+
+We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 15.14%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 84.42%, a Kappa of 68.92%, and a Sensitivity of 77.05%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). Complaint_Type is not too far behind. We decided to keep the **m2** model as Model 2 for comparisons with the other Random Forest models in this section. 
+
+#### Model 3 - Default Model minus ResolutionTime variable with tuning
+
+Prior to running Model 3, we ran tuneRF function to find out what is the optimal **mtry** variable that will have the lowest error rate and hopefully increase accuracy.
+
+```{r}
+# names of features
+training1a <- training1 %>% 
+  select(-ResolutionTime)
+features <- setdiff(names(training1a), "Acceptable_Resolution_Status")
+
+set.seed(123)
+
+m3a <- tuneRF(
+  x          = training1a[features],
+  y          = training1a$Acceptable_Resolution_Status,
+  ntreeTry   = 500,
+  mtryStart  = 5,
+  stepFactor = 1.5,
+  improve    = 0.01,
+  trace      = FALSE      # to not show real-time progress 
+)
+best.m <- m3a[m3a[, 2] == min(m3a[, 2]), 1]
+print(m3a)
+print(best.m)
+```
+
+It was determined that the optiomal **mtry** parameter is 7. We reran the Random Forest to see if the accuracy improved.
+
+```{r}
+set.seed(521)
+m3 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = 7)
+print(m3)
+plot(m3)
+#Evaluate variable importance
+importance(m3)
+varImpPlot(m3)
+```
+We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 13.68%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 85.65%, a Kappa of 71.32%, and a Sensitivity of 83%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). We decided to keep the **m3** model as Model 3 for comparisons with the other Random Forest models in this section. 
+
+## (3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
 
 TO-DO
 
-## (Q4) Neural Network {.tabset .tabset-fade .tabset-pills} 
+## (4) Neural Network {.tabset .tabset-fade .tabset-pills} 
 
 TO-DO
 
-## (Q5) Model Performance and Selection {.tabset .tabset-fade .tabset-pills}
+## (5) Model Performance and Selection {.tabset .tabset-fade .tabset-pills}
 
-TO-DO
+#### Random Forest
+
+```{r}
+prediction1 <- predict(m1,newdata = testing1)
+prediction1.cm <- confusionMatrix(prediction1, testing1$Acceptable_Resolution_Status) 
+prediction1.cm
+```
+
+```{r}
+prediction2 <- predict(m2,newdata = testing1)
+prediction2.cm <- confusionMatrix(prediction2, testing1$Acceptable_Resolution_Status) 
+prediction2.cm
+```
+
+```{r}
+prediction3 <- predict(m3,newdata = testing1)
+prediction3.cm <- confusionMatrix(prediction3, testing1$Acceptable_Resolution_Status) 
+prediction3.cm
+```
+
+```{r}
+# Model 1 Values
+prediction1.accuracy <- prediction1.cm$overall['Accuracy']
+prediction1.kappa <- prediction1.cm$overall['Kappa']
+prediction1.sensitivity <- prediction1.cm$byClass['Sensitivity']
+prediction1.TN <- prediction1.cm$table[1,1]
+prediction1.FP <- prediction1.cm$table[1,2]
+prediction1.FN <- prediction1.cm$table[2,1]
+prediction1.TP <- prediction1.cm$table[2,2]
+prediction1.TPR <- prediction1.TP /(prediction1.TP + prediction1.FN)
+prediction1.TNR <- prediction1.TN /(prediction1.TN + prediction1.FP)
+prediction1.FPR <- prediction1.FP /(prediction1.TN + prediction1.FP)
+prediction1.FNR <- prediction1.FN /(prediction1.TP + prediction1.FN)
+prediction1.precision <- prediction1.TP / (prediction1.TP + prediction1.FP)
+prediction1.recall <- prediction1.TP / (prediction1.TP + prediction1.FN)
+prediction1.specificity <- prediction1.TN / (prediction1.TN + prediction1.FP)
+prediction1.f1score <- 2 * ((prediction1.precision * prediction1.recall) / (prediction1.precision + prediction1.recall))
+```
+
+```{r}
+# Model 2 Values
+prediction2.accuracy <- prediction2.cm$overall['Accuracy']
+prediction2.kappa <- prediction2.cm$overall['Kappa']
+prediction2.sensitivity <- prediction2.cm$byClass['Sensitivity']
+prediction2.TN <- prediction2.cm$table[1,1]
+prediction2.FP <- prediction2.cm$table[1,2]
+prediction2.FN <- prediction2.cm$table[2,1]
+prediction2.TP <- prediction2.cm$table[2,2]
+prediction2.TPR <- prediction2.TP /(prediction2.TP + prediction2.FN)
+prediction2.TNR <- prediction2.TN /(prediction2.TN + prediction2.FP)
+prediction2.FPR <- prediction2.FP /(prediction2.TN + prediction2.FP)
+prediction2.FNR <- prediction2.FN /(prediction2.TP + prediction2.FN)
+prediction2.precision <- prediction2.TP / (prediction2.TP + prediction2.FP)
+prediction2.recall <- prediction2.TP / (prediction2.TP + prediction2.FN)
+prediction2.specificity <- prediction2.TN / (prediction2.TN + prediction2.FP)
+prediction2.f1score <- 2 * ((prediction2.precision * prediction2.recall) / (prediction2.precision + prediction2.recall))
+```
+
+```{r}
+# Model 3 Values
+prediction3.accuracy <- prediction3.cm$overall['Accuracy']
+prediction3.kappa <- prediction3.cm$overall['Kappa']
+prediction3.sensitivity <- prediction3.cm$byClass['Sensitivity']
+prediction3.TN <- prediction3.cm$table[1,1]
+prediction3.FP <- prediction3.cm$table[1,2]
+prediction3.FN <- prediction3.cm$table[2,1]
+prediction3.TP <- prediction3.cm$table[2,2]
+prediction3.TPR <- prediction3.TP /(prediction3.TP + prediction3.FN)
+prediction3.TNR <- prediction3.TN /(prediction3.TN + prediction3.FP)
+prediction3.FPR <- prediction3.FP /(prediction3.TN + prediction3.FP)
+prediction3.FNR <- prediction3.FN /(prediction3.TP + prediction3.FN)
+prediction3.precision <- prediction3.TP / (prediction3.TP + prediction3.FP)
+prediction3.recall <- prediction3.TP / (prediction3.TP + prediction3.FN)
+prediction3.specificity <- prediction3.TN / (prediction3.TN + prediction3.FP)
+prediction3.f1score <- 2 * ((prediction3.precision * prediction3.recall) / (prediction3.precision + prediction3.recall))
+```
+
+```{r, echo=FALSE}
+Model <- c("Model 1","Model 2", "Model 3")
+Accuracy <- c(prediction1.accuracy, prediction2.accuracy, prediction3.accuracy)
+Kappa <- c(prediction1.kappa, prediction2.kappa, prediction3.kappa)
+Sensitivity <- c(prediction1.sensitivity, prediction2.sensitivity, prediction3.sensitivity)
+Recall <- c(prediction1.recall, prediction2.recall, prediction3.recall)
+Specificity <- c(prediction1.specificity, prediction2.specificity, prediction3.specificity)
+Precision <- c(prediction1.precision, prediction2.precision, prediction3.precision)
+F1Score <- c(prediction1.f1score, prediction2.f1score, prediction3.f1score)
+TPR <- c(prediction1.TPR, prediction2.TPR, prediction3.TPR)
+TNR <- c(prediction1.TNR, prediction2.TNR, prediction3.TNR)
+FPR <- c(prediction1.FPR, prediction2.FPR, prediction3.FPR)
+FNR <- c(prediction1.FNR, prediction2.FNR, prediction3.FNR)
+tableModel <- data.frame(Model,Accuracy,Kappa, Sensitivity, Recall,Specificity,Precision,F1Score)
+tableModel %>%
+  kable() %>%
+  kable_styling()
+```
+
+Application process time
+```{r}
+# Stop the clock
+proc.time() - ptm
+```
