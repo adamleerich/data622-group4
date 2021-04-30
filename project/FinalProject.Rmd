@@ -68,9 +68,12 @@ An initial problem with handling a data set with 25+ million rows is finding a r
 
 The next problem facing the Group is the initial downloading of the data. Ajay estimated a download time of 1.5 hours on R to mitigate the 25+ million rows. Ajay decided to split the massive table into 14 sub-tables of approximately 1.8 million rows each. The download time of data even at smaller queries were far more acceptable and allowed the Group to develop the Project further.
 
+Due to Memory Limitations, Machine Limitations, and other factors, the maximum data tested is **520,000 rows of data minus N/A values = 371,670 rows of data total.**
+
 ```{r}
-# placeholder for maxrows
-maxrows = 65000
+# placeholder for maxrows and totalrows
+maxrows = 65000 # max rows that mysql LIMIT can download
+totalrows = maxrows * 8 # max rows that R-Studio can process without exceeding 2GB memory limitation - currently at 520K rows
 # Start the clock!
 ptm <- proc.time()
 cn <- dbConnect(drv      = RMySQL::MySQL(),
@@ -79,14 +82,8 @@ cn <- dbConnect(drv      = RMySQL::MySQL(),
                 host     = "data622.c3alv39zxnhk.us-east-2.rds.amazonaws.com",
                 port     = 3306,
                 dbname   = "")
-# I queried column names from ny311 so we can decide which variables to eliminate and use a for-loop to concatenate a string for the select statement we will use to download data.
-# - WE MAY NOT NEED THIS.
-#colsqlstr <- "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = 'data1';"
-#colnms <- dbGetQuery(cn, colsqlstr)
-#colnmslist <- list(colnms$COLUMN_NAME)
-#str(colnmslist)
-#mainsqlstr <- paste("SELECT * FROM DATA622.data1 order by rand() limit 0,",maxrows,";")
-mainsqlstr <- paste("SELECT * FROM DATA622.data1 limit 0,",maxrows,";")
+mainsqlstr <- paste("SELECT * FROM DATA622.data1;")
+#mainsqlstr <- paste("SELECT * FROM DATA622.data1 limit 0,",maxrows,";")
 data2 <- dbGetQuery(cn, mainsqlstr)
 str(data2)
 summary(data2)
@@ -104,6 +101,7 @@ We performed some Data Type conversions in order to be able to execute prelimina
 ```{r}
 # Start the clock!
 ptm <- proc.time()
+data2 <- head(data2,totalrows)
 data2$Incident_Zip <- as.numeric(as.character(data2$Incident_Zip))
 data2$BBL <- as.numeric(as.character(data2$BBL))
 data2$X_Coordinate_State_Plane <- as.numeric(as.character(data2$X_Coordinate_State_Plane))
@@ -118,6 +116,8 @@ data2$Due_Date <- as.POSIXct(strptime(data2$Due_Date, "%Y-%m-%d %H:%M:%S"))
 
 data2$ResolutionTime <- difftime(data2$Closed_Date,data2$Created_Date, units = "min")
 data2$ResolutionTime <- as.numeric(data2$ResolutionTime)
+# Make it NA if less than 0. Only 75 cases in 1.8 million rows in data1.
+data2$ResolutionTime[data2$ResolutionTime < 0] <- NA
 ```
 
 #### Data Exploration
@@ -238,10 +238,13 @@ nrow(data2cand)
 
 Certain Categorical variables have greater than 53 categories. A Random Forest cannot be executed against these variables because of this. A solution would be to reduce the number of categories by combining like categories together.
 
+
+**Complaint_Type** Variable
+
 ```{r}
 data2cand$Complaint_Type <- as.character(data2cand$Complaint_Type)
 
-# Consolidate Noise variables
+# Consolidate Noise categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Residential"] <- "Noise"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Helicopter"] <- "Noise"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Street/Sidewalk"] <- "Noise"
@@ -249,27 +252,39 @@ data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Commercial"] <- "N
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Vehicle"] <- "Noise"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - Park"] <- "Noise"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Noise - House of Worship"] <- "Noise"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Collection Truck Noise"] <- "Noise"
 
-# Consolidate Sanitary Condition variables
+# Consolidate Sanitary Condition categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "UNSANITARY CONDITION"] <- "Sanitation Condition"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Animal Pvt Property"] <- "Sanitation Condition"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Indoor Sewage"] <- "Sanitation Condition"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Pigeon Condition"] <- "Sanitation Condition"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Dirty Conditions"] <- "Sanitation Condition"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Root/Sewer/Sidewalk Condition"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Condition"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Wood Pile Remaining"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "DSNY Spillage"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Sweeping/Missed"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Sweeping/Inadequate"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Request Large Bulky Item Collection"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Overflowing Litter Baskets"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Missed Collection (All Materials)"] <- "Sanitation Condition"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Litter Basket / Request"] <- "Sanitation Condition"
 
-# Consolidate Damaged Tree variables
-data2cand$Complaint_Type[data2cand$Complaint_Type == "Damaged Tree"] <- "Tree Damage"
-data2cand$Complaint_Type[data2cand$Complaint_Type == "Overgrown Tree/Branches"] <- "Tree Damage"
-data2cand$Complaint_Type[data2cand$Complaint_Type == "Dead/Dying Tree"] <- "Tree Damage"
-data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Tree Damage"] <- "Tree Damage"
+# Consolidate Tree Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Damaged Tree"] <- "Tree Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Overgrown Tree/Branches"] <- "Tree Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Dead/Dying Tree"] <- "Tree Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Tree Damage"] <- "Tree Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Uprooted Stump"] <- "Tree Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "New Tree Request"] <- "Tree Issue"
 
-# Consolidate Street Sign Issue variables
+# Consolidate Street Sign Issue categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Damaged"] <- "Street Sign Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Missing"] <- "Street Sign Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Street Sign - Dangling"] <- "Street Sign Issue"
 
-# Consolidate Repair Issue variables
+# Consolidate Repair Issue categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "PAINT/PLASTER"] <- "Repair Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "PLUMBING"] <- "Repair Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "ELECTRIC"] <- "Repair Issue"
@@ -281,46 +296,223 @@ data2cand$Complaint_Type[data2cand$Complaint_Type == "DOOR/WINDOW"] <- "Repair I
 data2cand$Complaint_Type[data2cand$Complaint_Type == "ELEVATOR"] <- "Repair Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "GENERAL"] <- "Repair Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "OUTSIDE BUILDING"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Outside Building"] <- "Repair Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "SAFETY"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "HEATING"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Appliance"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "General"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Safety"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Plumbing"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Peeling Paint"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Mold"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Window Guard"] <- "Repair Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Non-Residential Heat"] <- "Repair Issue"
 
-# Consolidate Parking Violation variables
+# Consolidate Parking Violation categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Blocked Driveway"] <- "Parking Violation"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Parking"] <- "Parking Violation"
 
-# Consolidate Homeless Issue variables
+# Consolidate Homeless Issue categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Encampment"] <- "Homeless Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Person Assistance"] <- "Homeless Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Homeless Street Condition"] <- "Homeless Issue"
 
-# Consolidate Animal Issue variables
+# Consolidate Animal Issue categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Animal-Abuse"] <- "Animal Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Animal in a Park"] <- "Animal Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Unleashed Dog"] <- "Animal Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Rodent"] <- "Animal Issue"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Mosquitoes"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Animal Kept as Pet"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Pet Shop"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Animal Facility - No Permit"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Unsanitary Animal Facility"] <- "Animal Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Animal Sold"] <- "Animal Issue"
 
-# Consolidate Dining Establishment variables
+# Consolidate Dining Establishment categories
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Food Establishment"] <- "Dining Establishment"
 data2cand$Complaint_Type[data2cand$Complaint_Type == "Outdoor Dining"] <- "Dining Establishment"
 
+# Consolidate Taxi Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Taxi Compliment"] <- "Taxi Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Taxi Complaint"] <- "Taxi Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "For Hire Vehicle Complaint"] <- "Taxi Issue"
+
+# Consolidate Water Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Drinking Water"] <- "Water Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Bottled Water"] <- "Water Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Standing Water"] <- "Water Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Cooling Tower"] <- "Water Issue"
+
+# Consolidate Bike/Skate-related Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Bike/Roller/Skate Chronic"] <- "Bike/Skate-related Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Derelict Bicycle"] <- "Bike/Skate-related Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Bike Rack Condition"] <- "Bike/Skate-related Issue"
+
+# Consolidate Abandoned Vehicle categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Derelict Vehicles"] <- "Abandoned Vehicle"
+
+# Consolidate Bus Stop Shelter Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Bus Stop Shelter Complaint"] <- "Bus Stop Shelter Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Bus Stop Shelter Placement"] <- "Bus Stop Shelter Issue"
+
+# Consolidate Environmental Issue categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "DEP Street Condition"] <- "Environmental Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "DEP Sidewalk Condition"] <- "Environmental Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Radioactive Material"] <- "Environmental Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Asbestos"] <- "Environmental Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "X-Ray Machine/Equipment"] <- "Environmental Issue"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Indoor Air Quality"] <- "Environmental Issue"
+
+# Consolidate Petty Crimes categories
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Urinating in Public"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Squeegee"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Panhandling"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Employee Behavior"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Calorie Labeling"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Illegal Fireworks"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Violation of Park Rules"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Recycling Enforcement"] <- "Petty Crimes"
+data2cand$Complaint_Type[data2cand$Complaint_Type == "Disorderly Youth"] <- "Petty Crimes"
+
 data2cand$Complaint_Type <- as.factor(data2cand$Complaint_Type)    
 unique(data2cand$Complaint_Type)
+```
 
+**Location_Type** Variable
+
+```{r}
+# Consolidate Residential categories
 data2cand$Location_Type <- as.character(data2cand$Location_Type)
 data2cand$Location_Type[data2cand$Location_Type == "RESIDENTIAL BUILDING"] <- "Residential Property"
 data2cand$Location_Type[data2cand$Location_Type == "Residential Building/House"] <- "Residential Property"
 data2cand$Location_Type[data2cand$Location_Type == "Residential Building"] <- "Residential Property"
 data2cand$Location_Type[data2cand$Location_Type == "Residential"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Residence"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Private House"] <- "Residential Property"
+data2cand$Location_Type[data2cand$Location_Type == "Private Residence"] <- "Residential Property"
+
+# Consolidate 3+Family Dwelling categories
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Apart"] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Apt."] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+Family Apt."] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Apt. Building"] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Apartment Building"] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Mixed Use Building"] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family Mixed"] <- "3+Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "3+ Family"] <- "3+Family Dwelling"
+
+# Consolidate 1-3 Family Dwelling categories
+data2cand$Location_Type[data2cand$Location_Type == "1-3 Family Mixed Use Building"] <- "1-3 Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "1-, 2- and 3- Family Home"] <- "1-3 Family Dwelling"
+
+# Consolidate 1-2 Family Dwelling categories
+data2cand$Location_Type[data2cand$Location_Type == "1-2 FamilyDwelling"] <- "1-2 Family Dwelling"
+data2cand$Location_Type[data2cand$Location_Type == "1-2 Family Mixed Use Building"] <- "1-2 Family Dwelling"
+
+# Consolidate School categories
+data2cand$Location_Type[data2cand$Location_Type == "School/Pre-School"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "Public School"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "Private School"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "School - K-12 Private"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "Cafeteria - Public School"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "Cafeteria - Private School"] <- "School"
+data2cand$Location_Type[data2cand$Location_Type == "School Safety Zone"] <- "School"
+
+# Consolidate Street/Sidewalk categories
+data2cand$Location_Type[data2cand$Location_Type == "Sidewalk"] <- "Street/Sidewalk"
+data2cand$Location_Type[data2cand$Location_Type == "Street"] <- "Street/Sidewalk"
+data2cand$Location_Type[data2cand$Location_Type == "Street/Curbside"] <- "Street/Sidewalk"
+data2cand$Location_Type[data2cand$Location_Type == "Street Area"] <- "Street/Sidewalk"
+data2cand$Location_Type[data2cand$Location_Type == "Curb"] <- "Street/Sidewalk"
+
+# Consolidate Vacant Property categories
+data2cand$Location_Type[data2cand$Location_Type == "Vacant Lot/Property"] <- "Vacant Property"
+data2cand$Location_Type[data2cand$Location_Type == "Vacant Lot"] <- "Vacant Property"
+data2cand$Location_Type[data2cand$Location_Type == "Vacant Building"] <- "Vacant Property"
+data2cand$Location_Type[data2cand$Location_Type == "Abandoned Building"] <- "Vacant Property"
+
+# Consolidate Commercial Property categories
+data2cand$Location_Type[data2cand$Location_Type == "Commercial"] <- "Commercial Property"
+data2cand$Location_Type[data2cand$Location_Type == "Comercial"] <- "Commercial Property"
+data2cand$Location_Type[data2cand$Location_Type == "Commercial Building"] <- "Commercial Property"
+data2cand$Location_Type[data2cand$Location_Type == "Store/Commercial"] <- "Commercial Property"
+
+# Consolidate Parking Lot/Garage categories
+data2cand$Location_Type[data2cand$Location_Type == "Parking Lot"] <- "Parking Lot/Garage"
+
+# Consolidate Park/Garden categories
+data2cand$Location_Type[data2cand$Location_Type == "Public Park/Garden"] <- "Park/Garden"
+data2cand$Location_Type[data2cand$Location_Type == "Public Garden/Park"] <- "Park/Garden"
+data2cand$Location_Type[data2cand$Location_Type == "Public Garden"] <- "Park/Garden"
+data2cand$Location_Type[data2cand$Location_Type == "Park"] <- "Park/Garden"
+
+# Consolidate Other categories
+data2cand$Location_Type[data2cand$Location_Type == "N/A"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Other (Explain Below)"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Other (explain in Complaint Details)"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Property Address"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Street Address"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Above Address"] <- "Other"
+data2cand$Location_Type[data2cand$Location_Type == "Mixed Use"] <- "Other"
+
+# Consolidate Pool/Spa/Beach categories
+data2cand$Location_Type[data2cand$Location_Type == "Pool"] <- "Pool/Spa/Beach"
+data2cand$Location_Type[data2cand$Location_Type == "Beach"] <- "Pool/Spa/Beach"
+data2cand$Location_Type[data2cand$Location_Type == "Sauna"] <- "Pool/Spa/Beach"
+data2cand$Location_Type[data2cand$Location_Type == "Spa Pool"] <- "Pool/Spa/Beach"
+
+# Consolidate Medical/Dental Practice categories
+data2cand$Location_Type[data2cand$Location_Type == "Doctor's Office"] <- "Medical/Dental Practice"
+data2cand$Location_Type[data2cand$Location_Type == "Dentist's Office"] <- "Medical/Dental Practice"
+
+# Consolidate Access Area categories
+data2cand$Location_Type[data2cand$Location_Type == "Lobby"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Common Area"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Hallway"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Stairwell"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Public/Unfenced Area"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Public Stairs"] <- "Access Area"
+data2cand$Location_Type[data2cand$Location_Type == "Public Plaza"] <- "Access Area"
+
+# Consolidate Street Vendor categories
+data2cand$Location_Type[data2cand$Location_Type == "Food Cart Vendor"] <- "Street Vendor"
+data2cand$Location_Type[data2cand$Location_Type == "Street Fair Vendor"] <- "Street Vendor"
+
+# Consolidate Store categories
+data2cand$Location_Type[data2cand$Location_Type == "House and Store"] <- "Store"
+data2cand$Location_Type[data2cand$Location_Type == "Retail Store"] <- "Store"
+data2cand$Location_Type[data2cand$Location_Type == "Grocery Store"] <- "Store"
+
+# Consolidate Building categories
+data2cand$Location_Type[data2cand$Location_Type == "Building (Non-Residential)"] <- "Building"
+data2cand$Location_Type[data2cand$Location_Type == "Government Building"] <- "Building"
+data2cand$Location_Type[data2cand$Location_Type == "Office Building"] <- "Building"
+
+# Consolidate Animal-based Business categories
+data2cand$Location_Type[data2cand$Location_Type == "Horse Stable"] <- "Animal-based Business"
+data2cand$Location_Type[data2cand$Location_Type == "Petting Zoo/Animal Exhibit"] <- "Animal-based Business"
+data2cand$Location_Type[data2cand$Location_Type == "Kennel/Animal Shelter"] <- "Animal-based Business"
+data2cand$Location_Type[data2cand$Location_Type == "Groomer"] <- "Animal-based Business"
+
+# Consolidate Restaurant/Bar/Deli/Bakery categories
+data2cand$Location_Type[data2cand$Location_Type == "Restaurant"] <- "Restaurant/Bar/Deli/Bakery"
+data2cand$Location_Type[data2cand$Location_Type == "Club/Bar/Restaurant"] <- "Restaurant/Bar/Deli/Bakery"
+
+# Consolidate 'One-Hit Wonder' categories
+data2cand$Location_Type[data2cand$Location_Type == "Subway Station"] <- "Subway"
+
 data2cand$Location_Type <- as.factor(data2cand$Location_Type)    
 unique(data2cand$Location_Type)
 ```
 
 #### Create Variable Acceptable_Resolution_Status
 
-Upon executing the summary for ResolutionTime, we have a very wide set of values for ResolutionTime. The mean for ResolutionTime is an unacceptabe 4878 minutes while the median is an acceptable 32.4 minutes. We will create a variable called Acceptable_Resolution_Status with 'Y' for any value between 1 and 32.4 minutes and 'N' for 0 value or any value greater than 32.4 minutes.
+Upon executing the summary for ResolutionTime, we have a very wide set of values for ResolutionTime. At 520,000 rows, the mean for ResolutionTime is an unacceptabe 9772.2 minutes while the median is an unacceptable 92.3 minutes. We will create a variable called Acceptable_Resolution_Status with 'Y' for any value between 1 and 92.3 minutes and 'N' for 0 value or any value greater than 92.23 minutes.
 
+Note: The median and mean for the 1.8 million data set are 196.3 minutes and 7368.5 minutes respectively. For 65000 records, the median and mean are 32.4 minutes and 7368.5 minutes respectively. 
 ```{r}
-medianARS <- 32.4
+medianARS <- 92.3
 data2cand$Acceptable_Resolution_Status = case_when(data2cand$ResolutionTime == 0 ~ 'N', 
                         (data2cand$ResolutionTime > 0 & data2cand$ResolutionTime <= medianARS) ~ 'Y', 
                         data2cand$ResolutionTime > medianARS ~ 'N')
@@ -352,7 +544,6 @@ set.seed(521)
 m1 <- randomForest(Acceptable_Resolution_Status ~ ., data = training1)
 print(m1)
 plot(m1)
-#Evaluate variable importance
 importance(m1)
 varImpPlot(m1)
 ```
@@ -366,12 +557,11 @@ set.seed(521)
 m2 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1)
 print(m2)
 plot(m2)
-#Evaluate variable importance
 importance(m2)
 varImpPlot(m2)
 ```
 
-We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 15.14%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 84.42%, a Kappa of 68.92%, and a Sensitivity of 77.05%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). Complaint_Type is not too far behind. We decided to keep the **m2** model as Model 2 for comparisons with the other Random Forest models in this section. 
+We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 16.72%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 84.45%, a Kappa of 62.98%, and a Sensitivity of 86.35%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Complaint_Type . BBL is not too far behind. We decided to keep the **m2** model as Model 2 for comparisons with the other Random Forest models in this section. 
 
 #### Model 3 - Default Model minus ResolutionTime variable with tuning
 
@@ -399,18 +589,17 @@ print(m3a)
 print(best.m)
 ```
 
-It was determined that the optiomal **mtry** parameter is 7. We reran the Random Forest to see if the accuracy improved.
+It was determined that the optiomal **mtry** parameter is 9. We reran the Random Forest to see if the accuracy improved.
 
 ```{r}
 set.seed(521)
-m3 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = 7)
+m3 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = 9)
 print(m3)
 plot(m3)
-#Evaluate variable importance
 importance(m3)
 varImpPlot(m3)
 ```
-We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 13.68%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 85.65%, a Kappa of 71.32%, and a Sensitivity of 83%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). We decided to keep the **m3** model as Model 3 for comparisons with the other Random Forest models in this section. 
+We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 15.12%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 85.13%, a Kappa of 66.54%, and a Sensitivity of 88.44%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). We decided to keep the **m3** model as Model 3 for comparisons with the other Random Forest models in this section. 
 
 ## (3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
 
@@ -518,7 +707,7 @@ tableModel %>%
   kable_styling()
 ```
 
-Application process time
+Random Forest processing time
 ```{r}
 # Stop the clock
 proc.time() - ptm
