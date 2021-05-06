@@ -40,7 +40,10 @@ packages <- c(
   'broom',
   'DBI',
   'RMySQL',
-  'RJDBC'
+  'RJDBC',
+  'lattice',
+  'ggplot2',
+  'e1071'
 )
 for (pkg in packages) {
   suppressPackageStartupMessages(suppressWarnings(
@@ -72,8 +75,12 @@ Due to Memory Limitations, Machine Limitations, and other factors, the maximum d
 
 ```{r}
 # placeholder for maxrows and totalrows
+#maxrows = 6400
+#totalrows = maxrows * 1 
 maxrows = 65000 # max rows that mysql LIMIT can download
-totalrows = maxrows * 8 # max rows that R-Studio can process without exceeding 2GB memory limitation - currently at 520K rows
+totalrows = maxrows * 4 # max rows x8 that R-Studio can process without exceeding 7GB max for one vector
+#memory limitation - currently at 520K rows
+ntreecand = 420
 # Start the clock!
 ptm <- proc.time()
 cn <- dbConnect(drv      = RMySQL::MySQL(),
@@ -541,7 +548,7 @@ numeric and categorical, un-scaled and scaled, full rank and highly correlative.
 
 ```{r}
 set.seed(521)
-m1 <- randomForest(Acceptable_Resolution_Status ~ ., data = training1)
+m1 <- randomForest(Acceptable_Resolution_Status ~ .- ResolutionTime, data = training1)
 print(m1)
 plot(m1)
 importance(m1)
@@ -550,20 +557,8 @@ varImpPlot(m1)
 
 We ran the random forest for the default model and we were very satisfied with the results. There is an error rate of 0%. We will find out later when we run the confusion matrix of the prediction values that Model 1 has an accuracy of 100%, a Kappa of 100%, and a Sensitivity of 100%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that ResolutionTime has an extremely high Coeefficient. While it is a major predictor for the Application_Resolution_Status, it is highly correlated as we used the values of ResolutionTime to create the dependent variable Application_Resolution_Status. The next 3 most important variables afterwards - Resolution_Action_Updated_Date, Agency, and Complaint_Type - may show promise because they are variables from the original data set. We decided to keep the **m1** model as Model 1 for comparisons with the other Random Forest models in this section. 
 
-#### Model 2 - Default Model minus ResolutionTime variable
 
-```{r}
-set.seed(521)
-m2 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1)
-print(m2)
-plot(m2)
-importance(m2)
-varImpPlot(m2)
-```
-
-We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 16.72%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 84.45%, a Kappa of 62.98%, and a Sensitivity of 86.35%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Complaint_Type . BBL is not too far behind. We decided to keep the **m2** model as Model 2 for comparisons with the other Random Forest models in this section. 
-
-#### Model 3 - Default Model minus ResolutionTime variable with tuning
+#### Model 2 - Default Model minus ResolutionTime variable with tuning for mtry
 
 Prior to running Model 3, we ran tuneRF function to find out what is the optimal **mtry** variable that will have the lowest error rate and hopefully increase accuracy.
 
@@ -587,23 +582,126 @@ m3a <- tuneRF(
 best.m <- m3a[m3a[, 2] == min(m3a[, 2]), 1]
 print(m3a)
 print(best.m)
+bestmtry <- 9
 ```
 
 It was determined that the optiomal **mtry** parameter is 9. We reran the Random Forest to see if the accuracy improved.
 
 ```{r}
 set.seed(521)
-m3 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = 9)
+m2 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = bestmtry)
+print(m2)
+plot(m2)
+importance(m2)
+varImpPlot(m2)
+```
+
+#### Model 3 - Default Model minus ResolutionTime variable with tuning for mtry=9 and ntree
+
+```{r}
+set.seed(521)
+m3 <- randomForest(Acceptable_Resolution_Status ~ . - ResolutionTime, data = training1, mtry = bestmtry, ntree = ntreecand)
 print(m3)
 plot(m3)
 importance(m3)
 varImpPlot(m3)
 ```
+
+We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 16.72%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 84.45%, a Kappa of 62.98%, and a Sensitivity of 86.35%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Complaint_Type . BBL is not too far behind. We decided to keep the **m2** model as Model 2 for comparisons with the other Random Forest models in this section. 
+
+Random Forest processing time
+```{r}
+# Stop the clock
+proc.time() - ptm
+```
 We ran the random forest for the default model and we were satisfied with the results. There is an error rate of 15.12%. We will find out later when we run the confusion matrix of the prediction values that Model 2 has an accuracy of 85.13%, a Kappa of 66.54%, and a Sensitivity of 88.44%. Moreover, a normal plot for a random forest should show a curve sloping down near the X and Y axes. There are 3 different curves almost parellel to each other. You will observe in the Variable Importance Plot and Summary that the 3 most important variables are Resolution_Action_Updated_Date, Agency, and Borough-Block-Lot (BBL). We decided to keep the **m3** model as Model 3 for comparisons with the other Random Forest models in this section. 
 
 ## (3) Support Vector Machine {.tabset .tabset-fade .tabset-pills} 
 
-TO-DO
+Support Vector Machines (SVM's) seem like a good model to investigate because it can deal with high-dimensional data. The data we have not only several variables, but it also has categorical variables with several levels for each. We will see if SVM can provide a suitable model to deal with this issue. 
+
+#### Remove ResolutionTime
+
+As indicated in the Random Forest exercise, we should remove the ResolutionTime variable as it heavily influences Application_Resolution_Status.
+
+```{r}
+# Start the clock!
+ptm <- proc.time()
+# names of features
+data2canda <- data2cand %>% 
+  select(-ResolutionTime)
+```
+
+#### Split Data into Training and Test Data Sets
+
+Next we will split the data into training and test data sets
+
+```{r}
+set.seed(100)
+roww <- nrow(data2canda)
+numTrain <- floor(0.75 * roww)
+numTest <- roww - numTrain
+training2 <- data2canda[sample(roww, numTrain), ]
+testing2 <- data2canda[sample(roww, numTest), ]
+```
+
+#### One-Hot Encoding of Categorical Variables
+
+SVM's do not like categorical variables. We will have to use one hot-encoding to make dummy variables with numerical replacements.
+
+```{r}
+dummies <- dummyVars(~ ., data=training2[,-10])
+c2 <- predict(dummies, training2[,-10])
+d_training <- as.data.frame(cbind(training2$Acceptable_Resolution_Status,c2))
+str(d_training)
+
+dummies <- dummyVars(~ ., data=testing2[,-10])
+c2 <- predict(dummies, testing2[,-10])
+d_testing <- as.data.frame(cbind(testing2$Acceptable_Resolution_Status,c2))
+str(d_testing)
+```
+#### SVM Model 1 Default with Tunning Cost 1-10 using Linear Kernel
+
+Optimal Cost 9 at 400 rows - using SVM tuning - 16 minutes
+Optimal Cost at 6 at 1600 rows - using SVM tuning = 56 minutes
+```{r}
+#gammalist <- c(0.005,0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05)
+#tune.out <- tune.svm(as.factor(V1) ~., data=d_training, 
+#                 kernel='linear', cost=1:10, gamma = gammalist)
+#summary(tune.out)
+#svm1 <- tune.out$best.model
+svm1 <- svm(as.factor(V1) ~., data=d_training, kernel='linear', cost=6, gamma = 0.005)
+summary(svm1)
+```
+
+#### SVM Model 2 Execution with Tuning Gamma Range 0.005-0.05 and Cost 2^(-1:5) using Radial Kernel
+
+Optimal Gamma 0.005 and Cost 1 at 400 rows
+
+```{r}
+#gammalist <- c(0.005,0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05)
+#tune.out <- tune.svm(as.factor(V1) ~., data=d_training, 
+#                 kernel='radial', cost=2^(-1:5), gamma = gammalist)
+#summary(tune.out)
+#svm2 <- tune.out$best.model
+svm2 <- svm(as.factor(V1) ~., data=d_training, kernel='radial', cost=1, gamma = 0.005)
+summary(svm2)
+```
+
+#### SVM Model 3 Execution with Cost 1-5 using Polynomial Kernel
+
+Model is too expensive to run even at 400 rows.
+
+```{r}
+#svm3 <- svm(V1 ~., data=d_training, kernel='polynomial', cost=1, gamma = 0.005)
+#summary(svm3)
+```
+
+Support Vector Machine processing time
+```{r}
+# Stop the clock
+proc.time() - ptm
+```
 
 ## (4) Neural Network {.tabset .tabset-fade .tabset-pills} 
 
@@ -614,100 +712,160 @@ TO-DO
 #### Random Forest
 
 ```{r}
-prediction1 <- predict(m1,newdata = testing1)
-prediction1.cm <- confusionMatrix(prediction1, testing1$Acceptable_Resolution_Status) 
-prediction1.cm
+# Start the clock!
+ptm <- proc.time()
+rfpred1 <- predict(m1,newdata = testing1)
+rfpred1.cm <- confusionMatrix(rfpred1, testing1$Acceptable_Resolution_Status) 
+rfpred1.cm
 ```
 
 ```{r}
-prediction2 <- predict(m2,newdata = testing1)
-prediction2.cm <- confusionMatrix(prediction2, testing1$Acceptable_Resolution_Status) 
-prediction2.cm
+rfpred2 <- predict(m2,newdata = testing1)
+rfpred2.cm <- confusionMatrix(rfpred2, testing1$Acceptable_Resolution_Status) 
+rfpred2.cm
 ```
 
 ```{r}
-prediction3 <- predict(m3,newdata = testing1)
-prediction3.cm <- confusionMatrix(prediction3, testing1$Acceptable_Resolution_Status) 
-prediction3.cm
+rfpred3 <- predict(m3,newdata = testing1)
+rfpred3.cm <- confusionMatrix(rfpred3, testing1$Acceptable_Resolution_Status) 
+rfpred3.cm
+```
+
+#### Support Vector Machine Predictions
+
+```{r}
+svmpred1 <- predict(svm1, d_testing[,-1])
+svmpred1.cm <- confusionMatrix(svmpred1, as.factor(d_testing$V1))
 ```
 
 ```{r}
-# Model 1 Values
-prediction1.accuracy <- prediction1.cm$overall['Accuracy']
-prediction1.kappa <- prediction1.cm$overall['Kappa']
-prediction1.sensitivity <- prediction1.cm$byClass['Sensitivity']
-prediction1.TN <- prediction1.cm$table[1,1]
-prediction1.FP <- prediction1.cm$table[1,2]
-prediction1.FN <- prediction1.cm$table[2,1]
-prediction1.TP <- prediction1.cm$table[2,2]
-prediction1.TPR <- prediction1.TP /(prediction1.TP + prediction1.FN)
-prediction1.TNR <- prediction1.TN /(prediction1.TN + prediction1.FP)
-prediction1.FPR <- prediction1.FP /(prediction1.TN + prediction1.FP)
-prediction1.FNR <- prediction1.FN /(prediction1.TP + prediction1.FN)
-prediction1.precision <- prediction1.TP / (prediction1.TP + prediction1.FP)
-prediction1.recall <- prediction1.TP / (prediction1.TP + prediction1.FN)
-prediction1.specificity <- prediction1.TN / (prediction1.TN + prediction1.FP)
-prediction1.f1score <- 2 * ((prediction1.precision * prediction1.recall) / (prediction1.precision + prediction1.recall))
+svmpred2 <- predict(svm2, d_testing[,-1])
+svmpred2.cm <- confusionMatrix(svmpred2, as.factor(d_testing$V1))
 ```
 
 ```{r}
-# Model 2 Values
-prediction2.accuracy <- prediction2.cm$overall['Accuracy']
-prediction2.kappa <- prediction2.cm$overall['Kappa']
-prediction2.sensitivity <- prediction2.cm$byClass['Sensitivity']
-prediction2.TN <- prediction2.cm$table[1,1]
-prediction2.FP <- prediction2.cm$table[1,2]
-prediction2.FN <- prediction2.cm$table[2,1]
-prediction2.TP <- prediction2.cm$table[2,2]
-prediction2.TPR <- prediction2.TP /(prediction2.TP + prediction2.FN)
-prediction2.TNR <- prediction2.TN /(prediction2.TN + prediction2.FP)
-prediction2.FPR <- prediction2.FP /(prediction2.TN + prediction2.FP)
-prediction2.FNR <- prediction2.FN /(prediction2.TP + prediction2.FN)
-prediction2.precision <- prediction2.TP / (prediction2.TP + prediction2.FP)
-prediction2.recall <- prediction2.TP / (prediction2.TP + prediction2.FN)
-prediction2.specificity <- prediction2.TN / (prediction2.TN + prediction2.FP)
-prediction2.f1score <- 2 * ((prediction2.precision * prediction2.recall) / (prediction2.precision + prediction2.recall))
 ```
 
 ```{r}
-# Model 3 Values
-prediction3.accuracy <- prediction3.cm$overall['Accuracy']
-prediction3.kappa <- prediction3.cm$overall['Kappa']
-prediction3.sensitivity <- prediction3.cm$byClass['Sensitivity']
-prediction3.TN <- prediction3.cm$table[1,1]
-prediction3.FP <- prediction3.cm$table[1,2]
-prediction3.FN <- prediction3.cm$table[2,1]
-prediction3.TP <- prediction3.cm$table[2,2]
-prediction3.TPR <- prediction3.TP /(prediction3.TP + prediction3.FN)
-prediction3.TNR <- prediction3.TN /(prediction3.TN + prediction3.FP)
-prediction3.FPR <- prediction3.FP /(prediction3.TN + prediction3.FP)
-prediction3.FNR <- prediction3.FN /(prediction3.TP + prediction3.FN)
-prediction3.precision <- prediction3.TP / (prediction3.TP + prediction3.FP)
-prediction3.recall <- prediction3.TP / (prediction3.TP + prediction3.FN)
-prediction3.specificity <- prediction3.TN / (prediction3.TN + prediction3.FP)
-prediction3.f1score <- 2 * ((prediction3.precision * prediction3.recall) / (prediction3.precision + prediction3.recall))
+# RF Model 1 Values
+rfpred1.accuracy <- rfpred1.cm$overall['Accuracy']
+rfpred1.kappa <- rfpred1.cm$overall['Kappa']
+rfpred1.sensitivity <- rfpred1.cm$byClass['Sensitivity']
+rfpred1.TN <- rfpred1.cm$table[1,1]
+rfpred1.FP <- rfpred1.cm$table[1,2]
+rfpred1.FN <- rfpred1.cm$table[2,1]
+rfpred1.TP <- rfpred1.cm$table[2,2]
+rfpred1.TPR <- rfpred1.TP /(rfpred1.TP + rfpred1.FN)
+rfpred1.TNR <- rfpred1.TN /(rfpred1.TN + rfpred1.FP)
+rfpred1.FPR <- rfpred1.FP /(rfpred1.TN + rfpred1.FP)
+rfpred1.FNR <- rfpred1.FN /(rfpred1.TP + rfpred1.FN)
+rfpred1.precision <- rfpred1.TP / (rfpred1.TP + rfpred1.FP)
+rfpred1.recall <- rfpred1.TP / (rfpred1.TP + rfpred1.FN)
+rfpred1.specificity <- rfpred1.TN / (rfpred1.TN + rfpred1.FP)
+rfpred1.f1score <- 2 * ((rfpred1.precision * rfpred1.recall) / (rfpred1.precision + rfpred1.recall))
+```
+
+```{r}
+# RF Model 2 Values
+rfpred2.accuracy <- rfpred2.cm$overall['Accuracy']
+rfpred2.kappa <- rfpred2.cm$overall['Kappa']
+rfpred2.sensitivity <- rfpred2.cm$byClass['Sensitivity']
+rfpred2.TN <- rfpred2.cm$table[1,1]
+rfpred2.FP <- rfpred2.cm$table[1,2]
+rfpred2.FN <- rfpred2.cm$table[2,1]
+rfpred2.TP <- rfpred2.cm$table[2,2]
+rfpred2.TPR <- rfpred2.TP /(rfpred2.TP + rfpred2.FN)
+rfpred2.TNR <- rfpred2.TN /(rfpred2.TN + rfpred2.FP)
+rfpred2.FPR <- rfpred2.FP /(rfpred2.TN + rfpred2.FP)
+rfpred2.FNR <- rfpred2.FN /(rfpred2.TP + rfpred2.FN)
+rfpred2.precision <- rfpred2.TP / (rfpred2.TP + rfpred2.FP)
+rfpred2.recall <- rfpred2.TP / (rfpred2.TP + rfpred2.FN)
+rfpred2.specificity <- rfpred2.TN / (rfpred2.TN + rfpred2.FP)
+rfpred2.f1score <- 2 * ((rfpred2.precision * rfpred2.recall) / (rfpred2.precision + rfpred2.recall))
+```
+
+```{r}
+# RF Model 3 Values
+rfpred3.accuracy <- rfpred3.cm$overall['Accuracy']
+rfpred3.kappa <- rfpred3.cm$overall['Kappa']
+rfpred3.sensitivity <- rfpred3.cm$byClass['Sensitivity']
+rfpred3.TN <- rfpred3.cm$table[1,1]
+rfpred3.FP <- rfpred3.cm$table[1,2]
+rfpred3.FN <- rfpred3.cm$table[2,1]
+rfpred3.TP <- rfpred3.cm$table[2,2]
+rfpred3.TPR <- rfpred3.TP /(rfpred3.TP + rfpred3.FN)
+rfpred3.TNR <- rfpred3.TN /(rfpred3.TN + rfpred3.FP)
+rfpred3.FPR <- rfpred3.FP /(rfpred3.TN + rfpred3.FP)
+rfpred3.FNR <- rfpred3.FN /(rfpred3.TP + rfpred3.FN)
+rfpred3.precision <- rfpred3.TP / (rfpred3.TP + rfpred3.FP)
+rfpred3.recall <- rfpred3.TP / (rfpred3.TP + rfpred3.FN)
+rfpred3.specificity <- rfpred3.TN / (rfpred3.TN + rfpred3.FP)
+rfpred3.f1score <- 2 * ((rfpred3.precision * rfpred3.recall) / (rfpred3.precision + rfpred3.recall))
+```
+
+```{r}
+# RF Model 1 Values
+svmpred1.accuracy <- svmpred1.cm$overall['Accuracy']
+svmpred1.kappa <- svmpred1.cm$overall['Kappa']
+svmpred1.sensitivity <- svmpred1.cm$byClass['Sensitivity']
+svmpred1.TN <- svmpred1.cm$table[1,1]
+svmpred1.FP <- svmpred1.cm$table[1,2]
+svmpred1.FN <- svmpred1.cm$table[2,1]
+svmpred1.TP <- svmpred1.cm$table[2,2]
+svmpred1.TPR <- svmpred1.TP /(svmpred1.TP + svmpred1.FN)
+svmpred1.TNR <- svmpred1.TN /(svmpred1.TN + svmpred1.FP)
+svmpred1.FPR <- svmpred1.FP /(svmpred1.TN + svmpred1.FP)
+svmpred1.FNR <- svmpred1.FN /(svmpred1.TP + svmpred1.FN)
+svmpred1.precision <- svmpred1.TP / (svmpred1.TP + svmpred1.FP)
+svmpred1.recall <- svmpred1.TP / (svmpred1.TP + svmpred1.FN)
+svmpred1.specificity <- svmpred1.TN / (svmpred1.TN + svmpred1.FP)
+svmpred1.f1score <- 2 * ((svmpred1.precision * svmpred1.recall) / (svmpred1.precision + svmpred1.recall))
+```
+
+```{r}
+# RF Model 2 Values
+svmpred2.accuracy <- svmpred2.cm$overall['Accuracy']
+svmpred2.kappa <- svmpred2.cm$overall['Kappa']
+svmpred2.sensitivity <- svmpred2.cm$byClass['Sensitivity']
+svmpred2.TN <- svmpred2.cm$table[1,1]
+svmpred2.FP <- svmpred2.cm$table[1,2]
+svmpred2.FN <- svmpred2.cm$table[2,1]
+svmpred2.TP <- svmpred2.cm$table[2,2]
+svmpred2.TPR <- svmpred2.TP /(svmpred2.TP + svmpred2.FN)
+svmpred2.TNR <- svmpred2.TN /(svmpred2.TN + svmpred2.FP)
+svmpred2.FPR <- svmpred2.FP /(svmpred2.TN + svmpred2.FP)
+svmpred2.FNR <- svmpred2.FN /(svmpred2.TP + svmpred2.FN)
+svmpred2.precision <- svmpred2.TP / (svmpred2.TP + svmpred2.FP)
+svmpred2.recall <- svmpred2.TP / (svmpred2.TP + svmpred2.FN)
+svmpred2.specificity <- svmpred2.TN / (svmpred2.TN + svmpred2.FP)
+svmpred2.f1score <- 2 * ((svmpred2.precision * svmpred2.recall) / (svmpred2.precision + svmpred2.recall))
 ```
 
 ```{r, echo=FALSE}
-Model <- c("Model 1","Model 2", "Model 3")
-Accuracy <- c(prediction1.accuracy, prediction2.accuracy, prediction3.accuracy)
-Kappa <- c(prediction1.kappa, prediction2.kappa, prediction3.kappa)
-Sensitivity <- c(prediction1.sensitivity, prediction2.sensitivity, prediction3.sensitivity)
-Recall <- c(prediction1.recall, prediction2.recall, prediction3.recall)
-Specificity <- c(prediction1.specificity, prediction2.specificity, prediction3.specificity)
-Precision <- c(prediction1.precision, prediction2.precision, prediction3.precision)
-F1Score <- c(prediction1.f1score, prediction2.f1score, prediction3.f1score)
-TPR <- c(prediction1.TPR, prediction2.TPR, prediction3.TPR)
-TNR <- c(prediction1.TNR, prediction2.TNR, prediction3.TNR)
-FPR <- c(prediction1.FPR, prediction2.FPR, prediction3.FPR)
-FNR <- c(prediction1.FNR, prediction2.FNR, prediction3.FNR)
+Model <- c("RF 1","RF 2", "RF 3", "SVM 1", "SVM 2")
+Accuracy <- c(rfpred1.accuracy, rfpred2.accuracy, rfpred3.accuracy, svmpred1.accuracy, svmpred2.accuracy)
+Kappa <- c(rfpred1.kappa, rfpred2.kappa, rfpred3.kappa, svmpred1.kappa, svmpred2.kappa)
+Sensitivity <- c(rfpred1.sensitivity, rfpred2.sensitivity, rfpred3.sensitivity, svmpred1.sensitivity, svmpred2.sensitivity)
+Recall <- c(rfpred1.recall, rfpred2.recall, rfpred3.recall,svmpred1.recall, svmpred2.recall)
+Specificity <- c(rfpred1.specificity, rfpred2.specificity, rfpred3.specificity, svmpred1.specificity, svmpred2.specificity)
+Precision <- c(rfpred1.precision, rfpred2.precision, rfpred3.precision, svmpred1.precision, svmpred2.precision)
+F1Score <- c(rfpred1.f1score, rfpred2.f1score, rfpred3.f1score, svmpred1.f1score, svmpred2.f1score)
+TPR <- c(rfpred1.TPR, rfpred2.TPR, rfpred3.TPR, svmpred1.TPR, svmpred2.TPR)
+TNR <- c(rfpred1.TNR, rfpred2.TNR, rfpred3.TNR, svmpred1.TNR, svmpred2.TNR)
+FPR <- c(rfpred1.FPR, rfpred2.FPR, rfpred3.FPR, svmpred1.FPR, svmpred2.FPR)
+FNR <- c(rfpred1.FNR, rfpred2.FNR, rfpred3.FNR, svmpred1.FNR, svmpred2.FNR)
 tableModel <- data.frame(Model,Accuracy,Kappa, Sensitivity, Recall,Specificity,Precision,F1Score)
 tableModel %>%
   kable() %>%
   kable_styling()
+
+RF2String <- paste("RF 2 and  3 mtry = ",bestmtry,"\n")
+print(RF2String)
+RF3String <- paste("RF 2 ntree = 500, RF 3 ntree = ",ntreecand,"\n")
+print(RF3String)
 ```
 
-Random Forest processing time
+Prediction and Confusion Matrix processing time
 ```{r}
 # Stop the clock
 proc.time() - ptm
