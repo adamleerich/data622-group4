@@ -52,6 +52,7 @@ for (pkg in packages) {
       warn.conflicts = FALSE, quietly = TRUE)
   ))
 }
+
 # A ggplot2 function
 defaulttheme <- theme(
   panel.background = element_blank(),
@@ -703,9 +704,62 @@ Support Vector Machine processing time
 proc.time() - ptm
 ```
 
-## (4) Neural Network {.tabset .tabset-fade .tabset-pills} 
+## (4) Decision Tree {.tabset .tabset-fade .tabset-pills} 
 
-TO-DO
+Decision trees are a supervised machine learning method used for classification and regression problems. This method operates by segmentation and aims to reduce the entropy of a dataset by continually splitting the data in a tree like structure by the most informative variables
+
+#### Remove ResolutionTime
+
+As indicated in the other models, we should remove the ResolutionTime variable as it heavily influences Application_Resolution_Status.
+
+```{r}
+# Start the clock!
+ptm <- proc.time()
+# names of features
+data2canda <- data2cand %>% 
+  select(-ResolutionTime)
+```
+
+#### Split Data into Training and Test Data Sets and Dummifying
+
+Next we will use the split from the SVM processes in our model. and we will use one hot-encoding to make dummy variables with numerical replacements. We will use the same export from the SVM dataset
+
+
+#### Decision Tree Model
+
+Optimal Cost 9 at 400 rows - using SVM tuning - 16 minutes
+Optimal Cost at 6 at 1600 rows - using SVM tuning = 56 minutes
+```{r}
+#gammalist <- c(0.005,0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05)
+#tune.out <- tune.svm(as.factor(V1) ~., data=d_training, 
+#                 kernel='linear', cost=1:10, gamma = gammalist)
+#summary(tune.out)
+#svm1 <- tune.out$best.model
+
+dummies <- dummyVars(~ ., data=training2[,-10])
+c2 <- predict(dummies, training2[,-10]) %>% as.data.frame() %>% dplyr::select(-contains("Acceptable"))
+d_training2 <- as.data.frame(bind_cols(training2$Acceptable_Resolution_Status,c2)) %>% 
+  rename("Response"="...1")
+str(d_training2)
+
+dummies <- dummyVars(~ ., data=testing2[,-10])
+c2 <- predict(dummies, testing2[,-10])%>% as.data.frame() %>% dplyr::select(-contains("Acceptable"))
+d_testing2 <- as.data.frame(bind_cols(testing2$Acceptable_Resolution_Status,c2)) %>% 
+  rename("Response"="...1")
+str(d_testing2)
+
+dt1 <-rpart::rpart(Response ~., data=d_training2)
+summary(dt1)
+varImp(dt1) %>% as.data.frame() %>% 
+  rownames_to_column() %>% 
+  slice_max(Overall, n = 5) %>% 
+  ggplot(aes(x = fct_reorder(rowname,Overall), y = Overall))+
+    geom_col(fill = "skyblue")+
+  coord_flip()+
+  labs(title = "Variable importance for Decision Tree",
+       x = "Score",
+       y = "Feature")
+```
 
 ## (5) Model Performance and Selection {.tabset .tabset-fade .tabset-pills}
 
@@ -744,6 +798,13 @@ svmpred2.cm <- confusionMatrix(svmpred2, as.factor(d_testing$V1))
 ```
 
 ```{r}
+```
+
+#### Decision Tree Predictions
+
+```{r}
+dtpred1 <- predict(dt1, d_testing2[,-1], type = "class")
+dtpred1.cm <- confusionMatrix(dtpred1, d_testing2$Response)
 ```
 
 ```{r}
@@ -841,19 +902,39 @@ svmpred2.specificity <- svmpred2.TN / (svmpred2.TN + svmpred2.FP)
 svmpred2.f1score <- 2 * ((svmpred2.precision * svmpred2.recall) / (svmpred2.precision + svmpred2.recall))
 ```
 
+```{r}
+# RF Model 1 Values
+dtpred1.accuracy <- dtpred1.cm$overall['Accuracy']
+dtpred1.kappa <- dtpred1.cm$overall['Kappa']
+dtpred1.sensitivity <- dtpred1.cm$byClass['Sensitivity']
+dtpred1.TN <- dtpred1.cm$table[1,1]
+dtpred1.FP <- dtpred1.cm$table[1,2]
+dtpred1.FN <- dtpred1.cm$table[2,1]
+dtpred1.TP <- dtpred1.cm$table[2,2]
+dtpred1.TPR <- dtpred1.TP /(dtpred1.TP + dtpred1.FN)
+dtpred1.TNR <- dtpred1.TN /(dtpred1.TN + dtpred1.FP)
+dtpred1.FPR <- dtpred1.FP /(dtpred1.TN + dtpred1.FP)
+dtpred1.FNR <- dtpred1.FN /(dtpred1.TP + dtpred1.FN)
+dtpred1.precision <- dtpred1.TP / (dtpred1.TP + dtpred1.FP)
+dtpred1.recall <- dtpred1.TP / (dtpred1.TP + dtpred1.FN)
+dtpred1.specificity <- dtpred1.TN / (dtpred1.TN + dtpred1.FP)
+dtpred1.f1score <- 2 * ((dtpred1.precision * dtpred1.recall) / (dtpred1.precision + dtpred1.recall))
+```
+
+
 ```{r, echo=FALSE}
-Model <- c("RF 1","RF 2", "RF 3", "SVM 1", "SVM 2")
-Accuracy <- c(rfpred1.accuracy, rfpred2.accuracy, rfpred3.accuracy, svmpred1.accuracy, svmpred2.accuracy)
-Kappa <- c(rfpred1.kappa, rfpred2.kappa, rfpred3.kappa, svmpred1.kappa, svmpred2.kappa)
-Sensitivity <- c(rfpred1.sensitivity, rfpred2.sensitivity, rfpred3.sensitivity, svmpred1.sensitivity, svmpred2.sensitivity)
-Recall <- c(rfpred1.recall, rfpred2.recall, rfpred3.recall,svmpred1.recall, svmpred2.recall)
-Specificity <- c(rfpred1.specificity, rfpred2.specificity, rfpred3.specificity, svmpred1.specificity, svmpred2.specificity)
-Precision <- c(rfpred1.precision, rfpred2.precision, rfpred3.precision, svmpred1.precision, svmpred2.precision)
-F1Score <- c(rfpred1.f1score, rfpred2.f1score, rfpred3.f1score, svmpred1.f1score, svmpred2.f1score)
-TPR <- c(rfpred1.TPR, rfpred2.TPR, rfpred3.TPR, svmpred1.TPR, svmpred2.TPR)
-TNR <- c(rfpred1.TNR, rfpred2.TNR, rfpred3.TNR, svmpred1.TNR, svmpred2.TNR)
-FPR <- c(rfpred1.FPR, rfpred2.FPR, rfpred3.FPR, svmpred1.FPR, svmpred2.FPR)
-FNR <- c(rfpred1.FNR, rfpred2.FNR, rfpred3.FNR, svmpred1.FNR, svmpred2.FNR)
+Model <- c("RF 1","RF 2", "RF 3", "SVM 1", "SVM 2", "DT 1")
+Accuracy <- c(rfpred1.accuracy, rfpred2.accuracy, rfpred3.accuracy, svmpred1.accuracy, svmpred2.accuracy, dtpred1.accuracy)
+Kappa <- c(rfpred1.kappa, rfpred2.kappa, rfpred3.kappa, svmpred1.kappa, svmpred2.kappa, dtpred1.kappa)
+Sensitivity <- c(rfpred1.sensitivity, rfpred2.sensitivity, rfpred3.sensitivity, svmpred1.sensitivity, svmpred2.sensitivity, dtpred1.sensitivity)
+Recall <- c(rfpred1.recall, rfpred2.recall, rfpred3.recall,svmpred1.recall, svmpred2.recall, dtpred1.recall)
+Specificity <- c(rfpred1.specificity, rfpred2.specificity, rfpred3.specificity, svmpred1.specificity, svmpred2.specificity, dtpred1.sensitivity)
+Precision <- c(rfpred1.precision, rfpred2.precision, rfpred3.precision, svmpred1.precision, svmpred2.precision,dtpred1.precision)
+F1Score <- c(rfpred1.f1score, rfpred2.f1score, rfpred3.f1score, svmpred1.f1score, svmpred2.f1score,dtpred1.f1score)
+TPR <- c(rfpred1.TPR, rfpred2.TPR, rfpred3.TPR, svmpred1.TPR, svmpred2.TPR, dtpred1.TPR)
+TNR <- c(rfpred1.TNR, rfpred2.TNR, rfpred3.TNR, svmpred1.TNR, svmpred2.TNR, dtpred1.TNR)
+FPR <- c(rfpred1.FPR, rfpred2.FPR, rfpred3.FPR, svmpred1.FPR, svmpred2.FPR, dtpred1.FPR)
+FNR <- c(rfpred1.FNR, rfpred2.FNR, rfpred3.FNR, svmpred1.FNR, svmpred2.FNR, dtpred1.FNR)
 tableModel <- data.frame(Model,Accuracy,Kappa, Sensitivity, Recall,Specificity,Precision,F1Score)
 tableModel %>%
   kable() %>%
